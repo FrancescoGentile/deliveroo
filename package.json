@@ -1,0 +1,46 @@
+{
+  "name": "deliveroo",
+  "version": "0.1.0",
+  "description": "",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "pre-commit": "lint-staged",
+    "prepare": "husky install"
+  },
+  "keywords": [],
+  "contributors": [
+    {
+      "name": "Francesco Gentile",
+      "email": "francesco.gentile@studenti.unitn.it"
+    },
+    {
+      "name": "Manuela Corte Pause",
+      "email": "manuela.cortepause@studenti.unitn.it"
+    }
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/create-config": "^0.4.2",
+    "@typescript-eslint/eslint-plugin": "^5.57.0",
+    "@typescript-eslint/parser": "^5.57.0",
+    "eslint": "^8.36.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-config-airbnb-typescript": "^17.0.0",
+    "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-import": "^2.25.2",
+    "eslint-plugin-n": "^15.0.0",
+    "eslint-plugin-promise": "^6.0.0",
+    "husky": "^8.0.0",
+    "lint-staged": "^13.2.0",
+    "prettier": "^2.8.7",
+    "typescript": "^5.0.2"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  }
+}
