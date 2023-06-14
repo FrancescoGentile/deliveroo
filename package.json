@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "description": "",
   "main": "dist/index.js",
+  "type": "module",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node --experimental-loader=extensionless dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "pre-commit": "lint-staged",
     "prepare": "husky install"
@@ -25,6 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/create-config": "^0.4.2",
+    "@types/node": "^18.15.11",
     "@typescript-eslint/eslint-plugin": "^5.57.0",
     "@typescript-eslint/parser": "^5.57.0",
     "eslint": "^8.36.0",
@@ -37,7 +39,16 @@
     "husky": "^8.0.0",
     "lint-staged": "^13.2.0",
     "prettier": "^2.8.7",
+    "ts-node": "^10.9.1",
     "typescript": "^5.0.2"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "eventemitter3": "^5.0.0",
+    "extensionless": "^1.4.5",
+    "mathjs": "^11.8.0",
+    "socket.io-client": "^4.6.1",
+    "winston": "^3.8.2"
   },
   "engines": {
     "node": ">=18",
