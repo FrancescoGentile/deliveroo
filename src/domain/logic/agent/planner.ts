@@ -87,7 +87,7 @@ class Node {
   }
 
   public addParcels(parcels: Parcel[]): void {
-    this._state.availableParcels.concat(parcels);
+    this._state.availableParcels.push(...parcels);
     for (const child of this._children) {
       child.addParcels(parcels);
     }
@@ -213,12 +213,11 @@ export class MonteCarloPlanner {
   ): Promise<MonteCarloPlanner> {
     // this is a temporary solution until the case in which there are no parcels
     // is handled
-    let parcels = [...environment.getParcels().values()];
-    while (parcels.length === 0) {
+    while (environment.getChanges() === null) {
       // eslint-disable-next-line no-await-in-loop
       await sleep(100);
-      parcels = [...environment.getParcels().values()];
     }
+    const parcels = [...environment.getParcels().values()];
 
     const state = {
       availableParcels: parcels,
@@ -340,11 +339,7 @@ export class MonteCarloPlanner {
     return bestChild!;
   }
 
-  public getBestIntention(): Intention {
-    if (this._children.length === 0) {
-      throw new Error('No children');
-    }
-
+  public getBestIntention(): Intention | null {
     let bestIntention = null;
     let bestScore = Number.NEGATIVE_INFINITY;
 
@@ -364,11 +359,11 @@ export class MonteCarloPlanner {
       }
     }
 
-    return bestIntention!;
+    return bestIntention;
   }
 
   public addParcels(parcels: Parcel[]): void {
-    this._state.availableParcels.concat(parcels);
+    this._state.availableParcels.push(...parcels);
     for (const child of this._children) {
       child.addParcels(parcels);
     }

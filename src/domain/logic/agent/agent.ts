@@ -28,7 +28,11 @@ export class MonteCarloAgent implements Agent {
   ): Promise<MonteCarloAgent> {
     const logger = createLogger({
       level: 'debug',
-      format: winston.format.json(),
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple(),
+        winston.format.prettyPrint()
+      ),
       transports: [new winston.transports.Console()],
     });
 
@@ -45,8 +49,13 @@ export class MonteCarloAgent implements Agent {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const intention = this._planner.getBestIntention();
-      // eslint-disable-next-line no-await-in-loop
-      await this.performIntention(intention);
+      if (intention === null) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(100);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await this.performIntention(intention);
+      }
     }
   }
 
@@ -65,7 +74,7 @@ export class MonteCarloAgent implements Agent {
             existingParcels.has(parcel._id)
           ) {
             this._logger.error(
-              `Parcel ${parcel.toString()} was not picked up by the agent.`
+              `Parcel ${parcel} was not picked up by the agent.`
             );
           }
         }
@@ -81,7 +90,7 @@ export class MonteCarloAgent implements Agent {
               existingParcels.has(parcel._id)
             ) {
               this._logger.error(
-                `Parcel ${parcel.toString()} was not put down by the agent.`
+                `Parcel ${parcel} was not put down by the agent.`
               );
             }
           }
