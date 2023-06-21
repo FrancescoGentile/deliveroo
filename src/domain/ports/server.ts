@@ -10,7 +10,7 @@ import {
   GridSize,
   Tile,
   Parcel,
-  Location,
+  Position,
 } from 'src/domain/models';
 
 export interface Server {
@@ -20,7 +20,7 @@ export interface Server {
 
   crossableTiles: Tile[];
 
-  initialLocation: Location;
+  initialPosition: Position;
 
   /**
    * Moves the agent in the given direction.
@@ -46,5 +46,5 @@ export interface Server {
    * Returns the parcels that are currently sensed by the agent.
    * @param callback callback to be called when parcels are sensed.
    */
-  onParcelsSensing(callback: (parcels: [Parcel, Location][]) => void): void;
+  onParcelsSensing(callback: (parcels: [Parcel, Position][]) => void): void;
 }

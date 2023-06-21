@@ -11,7 +11,6 @@ import {
   Position,
   Config,
   GridSize,
-  Location,
 } from 'src/domain/models';
 import { Server } from 'src/domain/ports';
 import { HashSet } from 'src/utils';
@@ -23,7 +22,7 @@ export class SocketIOServer implements Server {
     public readonly config: Config,
     public readonly gridSize: GridSize,
     public readonly crossableTiles: Tile[],
-    public readonly initialLocation: Location
+    public readonly initialPosition: Position
   ) {}
 
   public static async new(
@@ -46,9 +45,9 @@ export class SocketIOServer implements Server {
     return new SocketIOServer(socket, config, size, tiles, location);
   }
 
-  public onParcelsSensing(callback: (parcels: [Parcel, Location][]) => void) {
+  public onParcelsSensing(callback: (parcels: [Parcel, Position][]) => void) {
     this._socket.on('parcels sensing', (parcels) => {
-      const newParcels: [Parcel, Location][] = [];
+      const newParcels: [Parcel, Position][] = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const parcel of parcels) {
         newParcels.push([
@@ -90,7 +89,9 @@ export class SocketIOServer implements Server {
   public async putDown(parcels: Parcel[] | null): Promise<HashSet<ParcelID>> {
     return new Promise((resolve, _reject) => {
       const idsString =
-        parcels !== null ? parcels.map((parcel) => parcel.id.toString()) : null;
+        parcels !== null
+          ? parcels.map((parcel) => parcel._id.toString())
+          : null;
       this._socket.emit('putdown', idsString, (response: any[]) => {
         const putDownParcels: HashSet<ParcelID> = new HashSet<ParcelID>();
         // eslint-disable-next-line no-restricted-syntax
