@@ -10,18 +10,22 @@ import { Config } from './config';
 // ---------------------------------------------------------------------------
 
 export class ParcelID implements Hashable {
-  private constructor(private readonly id: string) {}
+  private constructor(private readonly _id: string) {}
 
   public static new(id: string): ParcelID {
     return new ParcelID(id);
   }
 
   public equals(other: ParcelID): boolean {
-    return this.id === other.id;
+    return this._id === other._id;
   }
 
   public hash(): string {
-    return this.id;
+    return this._id;
+  }
+
+  public toString(): string {
+    return this._id;
   }
 }
 
@@ -31,8 +35,8 @@ export class ParcelID implements Hashable {
 
 export class DecayingValue {
   private constructor(
-    private readonly value: number,
-    private readonly time: number
+    private readonly _value: number,
+    private readonly _time: number
   ) {}
 
   public static new(value: number): DecayingValue {
@@ -45,9 +49,9 @@ export class DecayingValue {
    * @returns The value.
    */
   public getValueByInstant(instant: number = Date.now()): number {
-    const diff = instant - this.time;
+    const diff = instant - this._time;
     const decay = Config.getInstance().parcelDecayingInterval;
-    const value = this.value - diff / decay;
+    const value = this._value - diff / decay;
     return value < 0 ? 0 : value;
   }
 
@@ -70,6 +74,10 @@ export class DecayingValue {
 
     return ref_value - delta_value;
   }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +86,8 @@ export class DecayingValue {
 
 export class Parcel {
   private constructor(
-    public readonly id: ParcelID,
-    public readonly value: DecayingValue
+    public readonly _id: ParcelID,
+    public readonly _value: DecayingValue
   ) {}
 
   public static new(id: string, value: number): Parcel {
@@ -87,6 +95,14 @@ export class Parcel {
   }
 
   public equals(other: Parcel): boolean {
-    return this.id.equals(other.id);
+    return this._id.equals(other._id);
+  }
+
+  public hash(): string {
+    return this._id.hash();
+  }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
   }
 }

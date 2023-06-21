@@ -2,6 +2,7 @@
 //
 //
 
+import { Hashable } from 'src/utils';
 import { GridSize } from './grid';
 import { Direction } from './direction';
 
@@ -9,7 +10,7 @@ import { Direction } from './direction';
 // Location
 // ---------------------------------------------------------------------------
 
-export interface Location {
+export interface Location extends Hashable {
   readonly row: number;
 
   readonly column: number;
@@ -19,13 +20,15 @@ export interface Location {
   moveTo(direction: Direction): Location;
 
   neigbours(size: GridSize): Location[];
+
+  equals(other: Location): boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Position
 // ---------------------------------------------------------------------------
 
-export class Position implements Location {
+export class Position implements Location, Hashable {
   public readonly row: number;
 
   public readonly column: number;
@@ -87,6 +90,14 @@ export class Position implements Location {
   public equals(other: Position): boolean {
     return this.row === other.row && this.column === other.column;
   }
+
+  public hash(): string {
+    return `${this.row},${this.column}`;
+  }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +149,15 @@ export class Tile implements Location {
     return this.position.neigbours(size);
   }
 
-  public equals(other: Tile): boolean {
-    return this.position.equals(other.position);
+  public equals(other: Location): boolean {
+    return this.position.equals(other);
+  }
+
+  public hash(): string {
+    return this.position.hash();
+  }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
   }
 }

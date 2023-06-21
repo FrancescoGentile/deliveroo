@@ -14,3 +14,4 @@ export {
 export { Config } from './config';
 export { GridSize } from './grid';
 export { Utility } from './utility';
+export { EnviromentChange } from './change';

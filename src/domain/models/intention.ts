@@ -2,8 +2,8 @@
 //
 //
 
-import { ParcelID } from './parcel';
-import { Tile } from './location';
+import { Parcel } from './parcel';
+import { Position } from './location';
 
 export type Intention = PutDownIntention | MoveIntention | PickUpIntention;
 
@@ -12,20 +12,16 @@ export type Intention = PutDownIntention | MoveIntention | PickUpIntention;
 // ---------------------------------------------------------------------------
 
 export class PutDownIntention {
-  public readonly tile: Tile;
-
-  public readonly parcels: ParcelID[] | null;
-
-  private constructor(tile: Tile, parcels: ParcelID[] | null = null) {
-    this.tile = tile;
-    this.parcels = parcels;
-  }
+  private constructor(
+    public readonly position: Position,
+    public readonly parcels: Parcel[] | null
+  ) {}
 
   public static new(
-    tile: Tile,
-    parcels: ParcelID[] | null = null
+    position: Position,
+    parcels: Parcel[] | null = null
   ): PutDownIntention {
-    return new PutDownIntention(tile, parcels);
+    return new PutDownIntention(position, parcels);
   }
 
   public equals(other: Intention): boolean {
@@ -33,7 +29,11 @@ export class PutDownIntention {
       return false;
     }
 
-    return this.tile.equals(other.tile);
+    return this.position.equals(other.position);
+  }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
   }
 }
 
@@ -42,14 +42,10 @@ export class PutDownIntention {
 // ---------------------------------------------------------------------------
 
 export class MoveIntention {
-  public readonly tile: Tile;
+  private constructor(public readonly position: Position) {}
 
-  private constructor(tile: Tile) {
-    this.tile = tile;
-  }
-
-  public static new(tile: Tile): MoveIntention {
-    return new MoveIntention(tile);
+  public static new(position: Position): MoveIntention {
+    return new MoveIntention(position);
   }
 
   public equals(other: Intention): boolean {
@@ -57,7 +53,11 @@ export class MoveIntention {
       return false;
     }
 
-    return this.tile.equals(other.tile);
+    return this.position.equals(other.position);
+  }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
   }
 }
 
@@ -66,24 +66,24 @@ export class MoveIntention {
 // ---------------------------------------------------------------------------
 
 export class PickUpIntention {
-  public readonly tile: Tile;
+  private constructor(
+    public readonly position: Position,
+    public readonly parcels: Parcel[]
+  ) {}
 
-  public readonly parcels: ParcelID[];
-
-  private constructor(tile: Tile, parcels: ParcelID[]) {
-    this.tile = tile;
-    this.parcels = parcels;
+  public static new(position: Position, parcels: Parcel[]): PickUpIntention {
+    return new PickUpIntention(position, parcels);
   }
 
-  public static new(tile: Tile, parcels: ParcelID[]): PickUpIntention {
-    return new PickUpIntention(tile, parcels);
-  }
-
-  public equals(other: PickUpIntention): boolean {
+  public equals(other: Intention): boolean {
     if (!(other instanceof PickUpIntention)) {
       return false;
     }
 
-    return this.tile.equals(other.tile);
+    return this.position.equals(other.position);
+  }
+
+  public toString(): string {
+    return JSON.stringify(this, null, 2);
   }
 }

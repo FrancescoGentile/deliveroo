@@ -27,77 +27,10 @@ export namespace Config {
     return _instance;
   }
 
-  export class Builder {
-    public static create(): Builder {
-      if (_instance !== null) {
-        throw new Error('Config already initialized');
-      }
-
-      return new Builder();
+  export function configure(config: Config): void {
+    if (_instance !== null) {
+      throw new Error('Config already initialized');
     }
-
-    private _config: Config = {
-      parcelGenerationInterval: 2000,
-      parcelRewardAverage: 30,
-      parcelRewardVariance: 10,
-      parcelDecayingInterval: Infinity,
-      movementSteps: 1,
-      movementDuration: 500,
-    };
-
-    public withParcelGenerationInterval(
-      parcelGenerationInterval: number
-    ): Builder {
-      this._config = {
-        ...this._config,
-        parcelGenerationInterval,
-      };
-      return this;
-    }
-
-    public withParcelRewardAverage(parcelRewardAverage: number): Builder {
-      this._config = {
-        ...this._config,
-        parcelRewardAverage,
-      };
-      return this;
-    }
-
-    public withParcelRewardVariance(parcelRewardVariance: number): Builder {
-      this._config = {
-        ...this._config,
-        parcelRewardVariance,
-      };
-      return this;
-    }
-
-    public withParcelDecayingInterval(parcelDecayingInterval: number): Builder {
-      this._config = {
-        ...this._config,
-        parcelDecayingInterval,
-      };
-      return this;
-    }
-
-    public withMovementSteps(movementSteps: number): Builder {
-      this._config = {
-        ...this._config,
-        movementSteps,
-      };
-      return this;
-    }
-
-    public withMovementDuration(movementDuration: number): Builder {
-      this._config = {
-        ...this._config,
-        movementDuration,
-      };
-      return this;
-    }
-
-    public build(): Config {
-      _instance = this._config;
-      return this._config;
-    }
+    _instance = config;
   }
 }
