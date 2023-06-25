@@ -7,10 +7,6 @@ import { Hashable } from './hashable';
 export class HashSet<V extends Hashable> {
   private readonly _map: Map<string, V> = new Map();
 
-  public static new<V extends Hashable>(): HashSet<V> {
-    return new HashSet();
-  }
-
   public add(value: V): void {
     this._map.set(value.hash(), value);
   }

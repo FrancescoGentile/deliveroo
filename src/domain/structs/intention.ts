@@ -12,17 +12,10 @@ export type Intention = PutDownIntention | MoveIntention | PickUpIntention;
 // ---------------------------------------------------------------------------
 
 export class PutDownIntention {
-  private constructor(
+  public constructor(
     public readonly position: Position,
     public readonly parcels: Parcel[] | null
   ) {}
-
-  public static new(
-    position: Position,
-    parcels: Parcel[] | null = null
-  ): PutDownIntention {
-    return new PutDownIntention(position, parcels);
-  }
 
   public equals(other: Intention): boolean {
     if (!(other instanceof PutDownIntention)) {
@@ -42,11 +35,7 @@ export class PutDownIntention {
 // ---------------------------------------------------------------------------
 
 export class MoveIntention {
-  private constructor(public readonly position: Position) {}
-
-  public static new(position: Position): MoveIntention {
-    return new MoveIntention(position);
-  }
+  public constructor(public readonly position: Position) {}
 
   public equals(other: Intention): boolean {
     if (!(other instanceof MoveIntention)) {
@@ -66,14 +55,10 @@ export class MoveIntention {
 // ---------------------------------------------------------------------------
 
 export class PickUpIntention {
-  private constructor(
+  public constructor(
     public readonly position: Position,
     public readonly parcels: Parcel[]
   ) {}
-
-  public static new(position: Position, parcels: Parcel[]): PickUpIntention {
-    return new PickUpIntention(position, parcels);
-  }
 
   public equals(other: Intention): boolean {
     if (!(other instanceof PickUpIntention)) {

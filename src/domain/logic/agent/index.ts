@@ -1,5 +1,0 @@
-//
-//
-//
-
-export { MonteCarloAgent } from './agent';

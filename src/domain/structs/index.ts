@@ -2,9 +2,10 @@
 //
 //
 
+export { AgentID, Agent } from './agent';
 export { Direction } from './direction';
 export { ParcelID, Parcel, DecayingValue } from './parcel';
-export { Location, Position, Tile } from './location';
+export { Position, Tile } from './location';
 export {
   Intention,
   PutDownIntention,

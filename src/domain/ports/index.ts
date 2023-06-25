@@ -2,6 +2,5 @@
 //
 //
 
-export { Server } from './server';
-export { Environment } from './environment';
-export { Agent } from './agent';
+export { Actuators } from './actuators';
+export { Sensors } from './sensors';

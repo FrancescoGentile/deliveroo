@@ -2,14 +2,14 @@
 //
 //
 
-import { Server } from 'src/domain/ports';
-import { SocketIOServer } from './server';
+import { Actuators, Sensors } from 'src/domain/ports';
+import { Client } from './client';
 
 export async function initInfrastructure(
   host: string,
   token: string
-): Promise<Server> {
-  const broker = await SocketIOServer.new(host, token);
+): Promise<[Sensors, Actuators]> {
+  const client = new Client(host, token);
 
-  return broker;
+  return [client, client];
 }

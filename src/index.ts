@@ -5,7 +5,7 @@
 import * as dotenv from 'dotenv';
 
 import { initInfrastructure } from './infrastructure';
-import { initAgent } from './domain';
+import { initDomain } from './domain';
 
 async function main() {
   dotenv.config();
@@ -14,9 +14,12 @@ async function main() {
     throw new Error('HOST and TOKEN must be set.');
   }
 
-  const server = await initInfrastructure(process.env.HOST, process.env.TOKEN);
-  const agent = await initAgent(server);
-  await agent.run();
+  const [sensors, actuators] = await initInfrastructure(
+    process.env.HOST,
+    process.env.TOKEN
+  );
+  const player = await initDomain(sensors, actuators);
+  await player.run();
 }
 
 main()

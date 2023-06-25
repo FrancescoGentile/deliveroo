@@ -2,14 +2,20 @@
 //
 //
 
-import { Config } from './models';
-import { Agent, Server } from './ports';
-import { MonteCarloAgent, SeidelEnvironment } from './logic';
+import { Actuators, Sensors } from './ports';
+import { Environment } from './environment';
+import { Player } from './player';
 
-export async function initAgent(server: Server): Promise<Agent> {
-  Config.configure(server.config);
-  const env = SeidelEnvironment.new(server);
-  const agent = MonteCarloAgent.new(env, server);
+export async function initDomain(
+  sensors: Sensors,
+  actuators: Actuators
+): Promise<Player> {
+  const [state, env] = await Promise.all([
+    sensors.getState(),
+    Environment.new(sensors),
+  ]);
 
-  return agent;
+  const player = new Player(state.position, env, actuators);
+
+  return player;
 }

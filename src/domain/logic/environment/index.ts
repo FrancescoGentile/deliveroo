@@ -1,5 +1,0 @@
-//
-//
-//
-
-export { SeidelEnvironment } from './seidel';

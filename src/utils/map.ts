@@ -5,10 +5,14 @@
 import { Hashable } from './hashable';
 
 export class HashMap<K extends Hashable, V> {
-  private constructor(private readonly _map: Map<string, [K, V]>) {}
+  private readonly _map: Map<string, [K, V]>;
 
-  public static new<K extends Hashable, V>(): HashMap<K, V> {
-    return new HashMap(new Map());
+  public constructor(map?: Map<string, [K, V]>) {
+    if (map !== undefined) {
+      this._map = map;
+    } else {
+      this._map = new Map();
+    }
   }
 
   public get(key: K): V | undefined {

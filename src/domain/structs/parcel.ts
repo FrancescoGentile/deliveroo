@@ -10,10 +10,10 @@ import { Config } from './config';
 // ---------------------------------------------------------------------------
 
 export class ParcelID implements Hashable {
-  private constructor(private readonly _id: string) {}
+  private readonly _id: string;
 
-  public static new(id: string): ParcelID {
-    return new ParcelID(id);
+  public constructor(id: string) {
+    this._id = id;
   }
 
   public equals(other: ParcelID): boolean {
@@ -34,13 +34,13 @@ export class ParcelID implements Hashable {
 // ---------------------------------------------------------------------------
 
 export class DecayingValue {
-  private constructor(
-    private readonly _value: number,
-    private readonly _time: number
-  ) {}
+  private readonly _value: number;
 
-  public static new(value: number): DecayingValue {
-    return new DecayingValue(value, Date.now());
+  private readonly _time: number;
+
+  public constructor(value: number, time: number = Date.now()) {
+    this._value = value;
+    this._time = time;
   }
 
   /**
@@ -62,17 +62,16 @@ export class DecayingValue {
    * @returns The difference.
    */
   public getValueDiff(reference: number, delta: number): number {
-    const ref_value = this.getValueByInstant(reference);
-    if (ref_value <= 0) {
+    const refValue = this.getValueByInstant(reference);
+    if (refValue <= 0) {
       return 0;
     }
 
-    const delta_value = new DecayingValue(
-      ref_value,
-      reference
-    ).getValueByInstant(reference + delta);
+    const delatValue = new DecayingValue(refValue, reference).getValueByInstant(
+      reference + delta
+    );
 
-    return ref_value - delta_value;
+    return refValue - delatValue;
   }
 
   public toString(): string {
@@ -85,21 +84,17 @@ export class DecayingValue {
 // ---------------------------------------------------------------------------
 
 export class Parcel {
-  private constructor(
-    public readonly _id: ParcelID,
-    public readonly _value: DecayingValue
+  public constructor(
+    public readonly id: ParcelID,
+    public readonly value: DecayingValue
   ) {}
 
-  public static new(id: string, value: number): Parcel {
-    return new Parcel(ParcelID.new(id), DecayingValue.new(value));
-  }
-
   public equals(other: Parcel): boolean {
-    return this._id.equals(other._id);
+    return this.id.equals(other.id);
   }
 
   public hash(): string {
-    return this._id.hash();
+    return this.id.hash();
   }
 
   public toString(): string {
