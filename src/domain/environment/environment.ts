@@ -6,6 +6,7 @@ import EventEmitter from 'eventemitter3';
 
 import { HashMap } from 'src/utils';
 import {
+  Agent,
   AgentID,
   Config,
   Direction,
@@ -22,6 +23,8 @@ import { kmax } from './utils';
 interface State {
   freeParcels: HashMap<ParcelID, [Parcel, Position]>;
   carriedParcels: HashMap<ParcelID, [Parcel, AgentID]>;
+  agents: HashMap<AgentID, Agent>;
+  visibleAgents: Agent[];
 }
 
 export class Environment {
@@ -30,6 +33,8 @@ export class Environment {
   private readonly _state: State = {
     freeParcels: new HashMap(),
     carriedParcels: new HashMap(),
+    agents: new HashMap(),
+    visibleAgents: [],
   };
 
   private readonly _broker: EventEmitter = new EventEmitter();
