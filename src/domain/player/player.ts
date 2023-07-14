@@ -15,6 +15,7 @@ import {
   PutDownIntention,
 } from 'src/domain/structs';
 import { MonteCarloPlanner } from './planner';
+import { PDDLPlanner } from './pddlPlanner';
 
 export class Player {
   private readonly _planner: MonteCarloPlanner;
@@ -24,6 +25,8 @@ export class Player {
   private readonly _actuators: Actuators;
 
   private readonly _logger: Logger;
+
+  private readonly _pddlPlanner: PDDLPlanner;
 
   public constructor(
     position: Position,
@@ -45,6 +48,8 @@ export class Player {
 
     this._actuators = actuators;
     this._environment = environment;
+
+    this._pddlPlanner = new PDDLPlanner(environment);
   }
 
   public async run() {
@@ -82,6 +87,21 @@ export class Player {
         await sleep(Config.getInstance().movementDuration);
       } else {
         this._logger.error('Failed to move agent to next position.');
+        // const plan = await this._pddlPlanner.getPlan(
+        //   this._planner.position,
+        //   intention.position
+        // );
+        // for (const move of plan) {
+        //   const action = await this._actuators.move(move);
+
+        //   if (action) {
+        //     this._planner.position = this._planner.position.moveTo(direction);
+        //     await sleep(Config.getInstance().movementDuration);
+        //   } else {
+        //     this._logger.error('Failed to move agent to next position.');
+        //     break;
+        //   }
+        // }
       }
     }
   }

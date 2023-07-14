@@ -7,3 +7,4 @@ export { HashSet } from './set';
 export { HashMap } from './map';
 export { sleep } from './time';
 export { getRandomInt } from './random';
+export { searchStringInArray, parsePlan } from './pddl';

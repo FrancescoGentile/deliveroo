@@ -17,7 +17,7 @@ export interface Sensors {
    * Gets the agent's current state.
    * @returns The agent's current state.
    */
-  getState(): Promise<Agent>;
+  getPosition(): Promise<Position>;
 
   /**
    * Gets the tiles that are crossable.
@@ -44,4 +44,10 @@ export interface Sensors {
   onParcelSensing(
     callback: (parcels: [Parcel, Position, AgentID | null][]) => void
   ): void;
+
+  /**
+   * Gets the agents that are currently being sensed.
+   * @param callback The callback to call when agents are sensed.
+   */
+  onAgentSensing(callback: (agents: Agent[]) => void): void;
 }

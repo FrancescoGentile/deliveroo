@@ -8,6 +8,7 @@ import { Actuators, Sensors } from 'src/domain/ports';
 import {
   Agent,
   AgentID,
+  AgentType,
   Config,
   DecayingValue,
   Direction,
@@ -22,7 +23,7 @@ import { HashSet, sleep } from 'src/utils';
 export class Client implements Actuators, Sensors {
   private readonly _socket: Socket;
 
-  private _agentState?: Agent;
+  private _agentPosition?: Position;
 
   private _crossableTiles?: Tile[];
 
@@ -38,16 +39,13 @@ export class Client implements Actuators, Sensors {
       autoConnect: true,
     });
 
-    this._socket.on('you', this.setAgentState.bind(this));
+    this._socket.on('you', this.setAgentPosition.bind(this));
     this._socket.once('map', this.setMap.bind(this));
     this._socket.once('config', this.setConfig.bind(this));
   }
 
-  private setAgentState(agent: any) {
-    this._agentState = new Agent(
-      new AgentID(agent.id),
-      new Position(agent.x, agent.y)
-    );
+  private setAgentPosition(agent: any) {
+    this._agentPosition = new Position(agent.x, agent.y);
   }
 
   private setMap(width: number, height: number, tiles: any[]) {
@@ -97,6 +95,22 @@ export class Client implements Actuators, Sensors {
     const parcelRadius = config.PARCELS_OBSERVATION_DISTANCE - 1;
     const agentRadius = config.AGENTS_OBSERVATION_DISTANCE - 1;
 
+    let maxParcels =
+      typeof config.PARCELS_MAX === 'string'
+        ? parseInt(config.PARCELS_MAX, 10)
+        : config.PARCELS_MAX;
+    maxParcels = maxParcels === undefined ? Infinity : maxParcels;
+
+    const randomAgents =
+      typeof config.RANDOMLY_MOVING_AGENTS === 'string'
+        ? parseInt(config.RANDOMLY_MOVING_AGENTS, 10)
+        : config.RANDOMLY_MOVING_AGENTS;
+
+    const randomAgentMovementDuration =
+      typeof config.RANDOM_AGENT_SPEED === 'string'
+        ? parseInt(config.RANDOM_AGENT_SPEED.slice(0 - 1), 10) * 1000
+        : config.RANDOM_AGENT_SPEED * 1000;
+
     this._config = {
       parcelGenerationInterval,
       parcelRewardAverage,
@@ -106,16 +120,19 @@ export class Client implements Actuators, Sensors {
       movementDuration,
       parcelRadius,
       agentRadius,
+      maxParcels,
+      randomAgents,
+      randomAgentMovementDuration,
     };
   }
 
-  public async getState(): Promise<Agent> {
-    while (this._agentState === undefined) {
+  public async getPosition(): Promise<Position> {
+    while (this._agentPosition === undefined) {
       // eslint-disable-next-line no-await-in-loop
       await sleep(100);
     }
 
-    return this._agentState;
+    return this._agentPosition;
   }
 
   public async getCrossableTiles(): Promise<Tile[]> {
@@ -202,6 +219,29 @@ export class Client implements Actuators, Sensors {
       }
 
       callback(newParcels);
+    });
+  }
+
+  public onAgentSensing(callback: (agents: Agent[]) => void): void {
+    this._socket.on('agents sensing', (agents) => {
+      const newAgents: Agent[] = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const agent of agents) {
+        if (Number.isInteger(agent.x) && Number.isInteger(agent.y)) {
+          newAgents.push(
+            new Agent(
+              new AgentID(agent.id),
+              new Position(agent.x, agent.y),
+              [],
+              agent.score,
+              AgentType.RANDOM,
+              Date.now()
+            )
+          );
+        }
+      }
+
+      callback(newAgents);
     });
   }
 }

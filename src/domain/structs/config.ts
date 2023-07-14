@@ -18,6 +18,12 @@ export interface Config {
   readonly parcelRadius: number; // 10
 
   readonly agentRadius: number; // 10
+
+  readonly maxParcels: number; // Infinity
+
+  readonly randomAgents: number; // 2
+
+  readonly randomAgentMovementDuration: number; // 2000
 }
 
 export namespace Config {

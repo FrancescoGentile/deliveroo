@@ -31,7 +31,7 @@ export enum AgentType {
   SMART = 'smart',
 }
 
-export class Agent {
+export class Agent implements Hashable {
   public constructor(
     public readonly id: AgentID,
     public position: Position,
@@ -43,6 +43,10 @@ export class Agent {
 
   public equals(other: Agent): boolean {
     return this.id.equals(other.id);
+  }
+
+  public hash(): string {
+    return this.id.hash();
   }
 
   public toString(): string {

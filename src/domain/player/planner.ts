@@ -271,7 +271,9 @@ export class MonteCarloPlanner {
       return;
     }
 
-    const promisingPositions = this._state.environment.getPromisingPositions();
+    const promisingPositions = this._state.environment.getPromisingPositions(
+      this.position
+    );
 
     let bestReward = Number.NEGATIVE_INFINITY;
     const now = Date.now();
