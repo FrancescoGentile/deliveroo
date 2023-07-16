@@ -10,12 +10,12 @@ export async function initDomain(
   sensors: Sensors,
   actuators: Actuators
 ): Promise<Player> {
-  const [pos, env] = await Promise.all([
+  const [position, env] = await Promise.all([
     sensors.getPosition(),
     Environment.new(sensors),
   ]);
 
-  const player = new Player(pos, env, actuators);
+  const player = new Player(position, env, actuators);
 
   return player;
 }

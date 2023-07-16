@@ -3,7 +3,7 @@
 //
 
 import EventEmitter from 'eventemitter3';
-
+import * as math from 'mathjs';
 import { HashMap, HashSet } from 'src/utils';
 import {
   Agent,
@@ -15,6 +15,8 @@ import {
   ParcelID,
   Position,
   Tile,
+  AgentType,
+  PDDLProblem,
 } from 'src/domain/structs';
 import { Sensors } from 'src/domain/ports';
 import { Map, buildMap } from './map';
@@ -22,6 +24,7 @@ import { kmax } from './utils';
 
 interface State {
   freeParcels: HashMap<ParcelID, Parcel>;
+  carriedParcels: HashMap<ParcelID, Parcel>;
   agents: HashMap<AgentID, Agent>;
   visibleAgents: Agent[];
 }
@@ -35,6 +38,7 @@ export class Environment {
 
   private readonly _state: State = {
     freeParcels: new HashMap(),
+    carriedParcels: new HashMap(),
     agents: new HashMap(),
     visibleAgents: [],
   };
@@ -57,6 +61,10 @@ export class Environment {
     ]);
     Config.configure(config);
     env._parcelRadius = config.parcelRadius;
+
+    sensors.onAgentSensing((agents) =>
+      env.onAgentSensing(agents, tiles.length)
+    );
 
     const map = await buildMap(size, tiles);
     env._map = map;
@@ -85,6 +93,11 @@ export class Environment {
         if (this._state.freeParcels.has(parcel.id)) {
           // the parcel is still free
           this._state.freeParcels.set(parcel.id, parcel);
+        } else if (this._state.carriedParcels.has(parcel.id)) {
+          // the parcel was carried and is now free
+          this._state.carriedParcels.delete(parcel.id);
+          this._state.freeParcels.set(parcel.id, parcel);
+          change.newFreeParcels.push(parcel);
         } else {
           // the parcel is new
           this._state.freeParcels.set(parcel.id, parcel);
@@ -93,7 +106,14 @@ export class Environment {
       } else if (this._state.freeParcels.has(parcel.id)) {
         // the parcel was free and is now carried
         this._state.freeParcels.delete(parcel.id);
+        this._state.carriedParcels.set(parcel.id, parcel);
         change.noLongerFreeParcels.push(parcel);
+      } else if (this._state.carriedParcels.has(parcel.id)) {
+        // the parcel is still carried
+        this._state.carriedParcels.set(parcel.id, parcel);
+      } else {
+        // the parcel is new
+        this._state.carriedParcels.set(parcel.id, parcel);
       }
     }
 
@@ -106,9 +126,59 @@ export class Environment {
   }
 
   private removeDeadParcels() {
-    for (const parcel of this._state.freeParcels.values()) {
+    for (const [id, parcel] of this._state.freeParcels.entries()) {
       if (parcel.value.getValueByInstant() === 0) {
-        this._state.freeParcels.delete(parcel.id);
+        this._state.freeParcels.delete(id);
+      }
+    }
+
+    for (const [id, parcel] of this._state.carriedParcels.entries()) {
+      if (parcel.value.getValueByInstant() === 0) {
+        this._state.carriedParcels.delete(id);
+      }
+    }
+  }
+
+  private onAgentSensing(agents: Agent[], tiles: number) {
+    const now = Date.now();
+    const avgParcelsDistance = tiles / Config.getInstance().maxParcels;
+    for (const agent of agents) {
+      // agent seen before
+      if (this._state.agents.has(agent.id)) {
+        const oldAgent = this._state.agents.get(agent.id)!;
+        const visitedTiles =
+          now - oldAgent.lastSeen * Config.getInstance().movementDuration;
+        const avgScore =
+          ((visitedTiles / avgParcelsDistance) *
+            Config.getInstance().parcelRewardAverage) /
+          Config.getInstance().randomAgents;
+        let agentType = AgentType.SMART;
+        if (Config.getInstance().randomAgents > 0) {
+          agentType =
+            avgScore > agent.score - oldAgent.score
+              ? AgentType.RANDOM
+              : AgentType.SMART;
+        }
+        const updatedAgent = new Agent(
+          agent.id,
+          agent.position,
+          agent.carriedParcels,
+          agent.score,
+          agentType,
+          now
+        );
+        this._state.agents.set(agent.id, updatedAgent);
+      } else {
+        this._state.agents.set(agent.id, agent);
+      }
+
+      if (this._state.visibleAgents.includes(agent)) {
+        const idx = this._state.visibleAgents.indexOf(agent);
+        const oldAgent = this._state.visibleAgents[idx];
+        this._state.visibleAgents[idx] = agent;
+        this._state.visibleAgents[idx].type = oldAgent.type;
+      } else {
+        this._state.visibleAgents.push(agent);
       }
     }
   }
@@ -121,12 +191,37 @@ export class Environment {
     return [...this._state.freeParcels.values()];
   }
 
-  public getPromisingPositions(): [Position, number][] {
+  public getPromisingPositions(playerPosition: Position): [Position, number][] {
     const weights = this._map.tileWeights;
     const numTiles = this._map.crossableTiles.length;
-    const radius = Config.getInstance().parcelRadius;
+    const { parcelRadius } = Config.getInstance();
+    const { agentRadius } = Config.getInstance();
+    const std = 1.0;
+    const agentsPositions = [
+      ...this._state.visibleAgents.map((agent) => agent.position),
+      playerPosition,
+    ];
+    for (const position of agentsPositions) {
+      for (let i = -agentRadius; i <= agentRadius; i += 1) {
+        for (let j = -agentRadius; j <= agentRadius; j += 1) {
+          const level = Math.abs(i) + Math.abs(j);
+          if (level > agentRadius) {
+            // eslint-disable-next-line no-continue
+            continue;
+          }
 
-    const k = Math.ceil(numTiles / radius ** 2);
+          const pos = new Position(position.row + i, position.column + j);
+          if (!pos.isValid(this._map.size)) {
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
+          const idx = this._map.crossableIndexes.get(pos)!;
+          weights[idx] -= math.exp(-((i * i + j * j) / (2 * std * std)));
+        }
+      }
+    }
+    const k = Math.ceil(numTiles / parcelRadius ** 2);
 
     const [values, indexes] = kmax(weights, k);
 
@@ -196,5 +291,28 @@ export class Environment {
     }
 
     return this._map.closestDelivery[startIdx];
+  }
+
+  public getVisibleAgents(): Agent[] {
+    return this._state.visibleAgents;
+  }
+
+  public toPDDL(): PDDLProblem {
+    const tiles = this._map.crossableTiles.map(
+      (tile) => `(t_${tile.position.row}_${tile.position.column})`
+    );
+
+    const neigbours = [];
+    for (const tile of this._map.crossableTiles) {
+      for (const neighbour of tile.position.neigbours(this._map.size)) {
+        neigbours.push(
+          `(${this.nextDirection(tile.position, neighbour)} t_${
+            tile.position.row
+          }_${tile.position.column} t_${neighbour.row}_${neighbour.column})`
+        );
+      }
+    }
+
+    return new PDDLProblem(tiles, neigbours, ['']);
   }
 }

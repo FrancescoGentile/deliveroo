@@ -2,7 +2,14 @@
 //
 //
 
-import { Config, GridSize, Parcel, Position, Tile } from 'src/domain/structs';
+import {
+  Agent,
+  Config,
+  GridSize,
+  Parcel,
+  Position,
+  Tile,
+} from 'src/domain/structs';
 import { HashSet } from 'src/utils';
 
 export interface Sensors {
@@ -41,4 +48,10 @@ export interface Sensors {
    * @param callback The callback to call when the position is updated.
    */
   onPositionUpdate(callback: (position: Position) => void): void;
+
+  /**
+   * Gets the agents that are currently being sensed.
+   * @param callback The callback to call when agents are sensed.
+   */
+  onAgentSensing(callback: (agents: Agent[]) => void): void;
 }

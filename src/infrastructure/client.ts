@@ -7,6 +7,8 @@ import { Socket, io } from 'socket.io-client';
 import { Actuators, Sensors } from 'src/domain/ports';
 import {
   AgentID,
+  Agent,
+  AgentType,
   Config,
   DecayingValue,
   Direction,
@@ -37,12 +39,12 @@ export class Client implements Actuators, Sensors {
       autoConnect: true,
     });
 
-    this._socket.on('you', this.setPosition.bind(this));
+    this._socket.on('you', this.setAgentPosition.bind(this));
     this._socket.once('map', this.setMap.bind(this));
     this._socket.once('config', this.setConfig.bind(this));
   }
 
-  private setPosition(agent: any) {
+  private setAgentPosition(agent: any) {
     this._agentPosition = new Position(agent.x, agent.y);
   }
 
@@ -93,6 +95,22 @@ export class Client implements Actuators, Sensors {
     const parcelRadius = config.PARCELS_OBSERVATION_DISTANCE - 1;
     const agentRadius = config.AGENTS_OBSERVATION_DISTANCE - 1;
 
+    let maxParcels =
+      typeof config.PARCELS_MAX === 'string'
+        ? parseInt(config.PARCELS_MAX, 10)
+        : config.PARCELS_MAX;
+    maxParcels = maxParcels === undefined ? Infinity : maxParcels;
+
+    const randomAgents =
+      typeof config.RANDOMLY_MOVING_AGENTS === 'string'
+        ? parseInt(config.RANDOMLY_MOVING_AGENTS, 10)
+        : config.RANDOMLY_MOVING_AGENTS;
+
+    const randomAgentMovementDuration =
+      typeof config.RANDOM_AGENT_SPEED === 'string'
+        ? parseInt(config.RANDOM_AGENT_SPEED.slice(0 - 1), 10) * 1000
+        : config.RANDOM_AGENT_SPEED * 1000;
+
     this._config = {
       parcelGenerationInterval,
       parcelRewardAverage,
@@ -102,6 +120,9 @@ export class Client implements Actuators, Sensors {
       movementDuration,
       parcelRadius,
       agentRadius,
+      maxParcels,
+      randomAgents,
+      randomAgentMovementDuration,
     };
   }
 
@@ -205,6 +226,29 @@ export class Client implements Actuators, Sensors {
   public onPositionUpdate(callback: (position: Position) => void): void {
     this._socket.on('you', (agent) => {
       callback(new Position(agent.x, agent.y));
+    });
+  }
+
+  public onAgentSensing(callback: (agents: Agent[]) => void): void {
+    this._socket.on('agents sensing', (agents) => {
+      const newAgents: Agent[] = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const agent of agents) {
+        if (Number.isInteger(agent.x) && Number.isInteger(agent.y)) {
+          newAgents.push(
+            new Agent(
+              new AgentID(agent.id),
+              new Position(agent.x, agent.y),
+              [],
+              agent.score,
+              AgentType.RANDOM,
+              Date.now()
+            )
+          );
+        }
+      }
+
+      callback(newAgents);
     });
   }
 }
