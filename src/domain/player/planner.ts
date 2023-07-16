@@ -2,268 +2,76 @@
 //
 //
 
+import * as utils from 'src/utils';
+import { HashMap } from 'src/utils';
 import {
   Config,
   DecayingValue,
   EnviromentChange,
   Intention,
-  MoveIntention,
+  IntentionType,
   Parcel,
-  PickUpIntention,
   Position,
-  PutDownIntention,
   Utility,
 } from 'src/domain/structs';
-import { getRandomInt } from 'src/utils';
-
 import { Environment } from 'src/domain/environment';
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-interface State {
-  readonly availableParcels: [Parcel, Position][];
-
-  readonly pickedParcels: Parcel[];
-
-  readonly arrivalTime: number;
-
-  readonly environment: Environment;
-}
-
-// ---------------------------------------------------------------------------
-// Node
-// ---------------------------------------------------------------------------
-
-class Node {
-  public readonly utility: Utility;
-
-  public readonly intention: Intention;
-
-  public parent: Node | null;
-
-  private readonly _state: State;
-
-  private readonly _children: Node[];
-
-  private _visits: number;
-
-  private _hasPutDown: boolean;
-
-  private readonly _reward: number;
-
-  public get visits(): number {
-    return this._visits;
-  }
-
-  public get children(): Node[] {
-    return this._children;
-  }
-
-  public get state(): State {
-    return this._state;
-  }
-
-  public get hasPutDown(): boolean {
-    return this._hasPutDown;
-  }
-
-  public constructor(state: State, intention: Intention, parent: Node | null) {
-    this.utility = new Utility(0, [], state.arrivalTime);
-    this.intention = intention;
-    this.parent = parent;
-    this._state = state;
-    this._children = [];
-    this._visits = 0;
-    this._hasPutDown = false;
-    this._reward = 0;
-
-    if (intention instanceof PutDownIntention) {
-      this._hasPutDown = true;
-
-      const parcels =
-        intention.parcels === null ? state.pickedParcels : intention.parcels;
-
-      for (const parcel of parcels) {
-        this._reward += parcel.value.getValueByInstant(state.arrivalTime);
-      }
-    }
-  }
-
-  public addParcels(parcels: [Parcel, Position][]): void {
-    this._state.availableParcels.push(...parcels);
-    for (const child of this._children) {
-      child.addParcels(parcels);
-    }
-  }
-
-  public isFullyExpanded(): boolean {
-    return this._state.availableParcels.length === 0 && this._hasPutDown;
-  }
-
-  public isTerminal(): boolean {
-    return this.isFullyExpanded() && this._children.length === 0;
-  }
-
-  public selectChild(): Node {
-    if (!this.isFullyExpanded()) {
-      return this.expand();
-    }
-
-    return this.getBestChild(Math.sqrt(2));
-  }
-
-  public expand(): Node {
-    let index;
-    if (this._hasPutDown) {
-      index = getRandomInt(0, this._state.availableParcels.length);
-    } else {
-      index = getRandomInt(0, this._state.availableParcels.length + 1);
-    }
-
-    let intention;
-    let state;
-    const { movementDuration } = Config.getInstance();
-    if (index < this._state.availableParcels.length) {
-      const [parcel, position] = this._state.availableParcels.splice(
-        index,
-        1
-      )[0];
-      intention = new PickUpIntention(position, [parcel]);
-      const timeToArrive =
-        this._state.environment.distance(this.intention.position, position) *
-        movementDuration;
-
-      state = {
-        availableParcels: [...this._state.availableParcels],
-        pickedParcels: [...this._state.pickedParcels, parcel],
-        arrivalTime: this._state.arrivalTime + timeToArrive,
-        environment: this._state.environment,
-      };
-    } else {
-      this._hasPutDown = true;
-      const position = this._state.environment.getClosestDeliveryPosition(
-        this.intention.position
-      );
-      intention = new PutDownIntention(position, this._state.pickedParcels);
-
-      const timeToArrive =
-        this._state.environment.distance(this.intention.position, position) *
-        movementDuration;
-
-      state = {
-        availableParcels: [...this._state.availableParcels],
-        pickedParcels: [],
-        arrivalTime: this._state.arrivalTime + timeToArrive,
-        environment: this._state.environment,
-      };
-    }
-
-    const node = new Node(state, intention, this);
-    this._children.push(node);
-    return node;
-  }
-
-  private getBestChild(explorationParameter: number): Node {
-    if (this._children.length === 0) {
-      throw new Error('No children');
-    }
-
-    let bestChild = null;
-    let bestScore = Number.NEGATIVE_INFINITY;
-
-    for (const child of this._children) {
-      const exploitation =
-        child.utility.getValueByInstant(child.state.arrivalTime) /
-        child._visits;
-      const exploration = Math.sqrt(Math.log(this._visits) / child._visits);
-      const score = exploitation + explorationParameter * exploration;
-
-      if (score > bestScore) {
-        bestChild = child;
-        bestScore = score;
-      }
-    }
-
-    return bestChild!;
-  }
-
-  public backpropagate(utility: Utility) {
-    // console.log('-----------------------------------------------');
-
-    // console.log(utility._value);
-
-    const tmp = utility.newWith(
-      this._reward,
-      this.state.pickedParcels,
-      this.state.arrivalTime
-    );
-
-    // console.log(tmp._value);
-
-    this.utility.add(tmp);
-
-    // console.log(this.utility._value);
-
-    // console.log('-----------------------------------------------');
-
-    this._visits += 1;
-
-    if (this.parent) {
-      this.parent.backpropagate(tmp);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// MonteCarloPlanner
-// ---------------------------------------------------------------------------
+import { Node } from './node';
+import { State, NodeID } from './structs';
 
 export class MonteCarloPlanner {
   public position: Position;
 
-  private _moveIntention: MoveIntention | null = null;
+  private _intention: Intention | null = null;
 
-  private _children: Node[] = [];
+  private _moveIntention: Intention | null = null;
 
-  private _state: State;
+  private _children: HashMap<NodeID, Node> = new HashMap();
 
-  private _hasPutDown: boolean = true;
+  private _state: State<[Parcel, number, NodeID | null]>;
 
   private _visits: number = 0;
 
   public constructor(position: Position, environment: Environment) {
     this.position = position;
+
     this._state = {
-      availableParcels: [...environment.getFreeParcels()],
+      availableParcels: [],
       pickedParcels: [],
       arrivalTime: Date.now(),
       environment,
     };
 
+    this._state.availableParcels = this.sort(environment.getFreeParcels());
+
     environment.onEnviromentChange(this.handleChanges.bind(this));
   }
 
-  public run(): void {
-    if (
-      this._children.length === 0 &&
-      this._state.availableParcels.length === 0 &&
-      this._hasPutDown
-    ) {
-      this.setMoveIntention();
-    } else {
-      let node = this.selectChild();
-      while (!node.isTerminal()) {
-        node = node.selectChild();
-      }
+  private greedyValue(parcel: Parcel): number {
+    const distance = this._state.environment.distance(
+      this.position,
+      parcel.position
+    );
 
-      const utility = new Utility(0, [], node.state.arrivalTime);
-      node.backpropagate(utility);
-      this._visits += 1;
+    const distanceToDelivery = this._state.environment.distance(
+      parcel.position,
+      this._state.environment.getClosestDeliveryPosition(parcel.position)
+    );
 
-      setImmediate(this.run.bind(this));
-    }
+    const { movementDuration } = Config.getInstance();
+    const timeToArrive = (distance + distanceToDelivery) * movementDuration;
+
+    return parcel.value.getValueByInstant(Date.now() + timeToArrive);
+  }
+
+  private sort(parcels: Parcel[]): [Parcel, number, NodeID | null][] {
+    const values: [Parcel, number, NodeID | null][] = parcels.map((parcel) => [
+      parcel,
+      this.greedyValue(parcel),
+      null,
+    ]);
+
+    return values.sort((a, b) => b[1] - a[1]);
   }
 
   private setMoveIntention() {
@@ -288,14 +96,25 @@ export class MonteCarloPlanner {
         now + totalTime
       );
       if (reward > bestReward) {
-        this._moveIntention = new MoveIntention(position);
+        this._moveIntention = Intention.move(position);
         bestReward = reward;
       }
     }
   }
 
+  private isFullyExpanded(): boolean {
+    if (
+      this._intention === null ||
+      this._intention.type === IntentionType.PUTDOWN
+    ) {
+      return this._children.size === this._state.availableParcels.length;
+    }
+
+    return this._children.size === this._state.availableParcels.length + 1;
+  }
+
   private selectChild(): Node {
-    if (this._state.availableParcels.length !== 0 || !this._hasPutDown) {
+    if (!this.isFullyExpanded()) {
       return this.expand();
     }
 
@@ -303,66 +122,48 @@ export class MonteCarloPlanner {
   }
 
   private expand(): Node {
-    const numOptions =
-      (this._hasPutDown ? 0 : 1) + this._state.availableParcels.length;
-
-    const index = getRandomInt(numOptions);
-
-    let intention;
-    let state;
+    const idx = this._state.availableParcels.findIndex((p) => p[2] === null);
     const { movementDuration } = Config.getInstance();
 
-    if (index < this._state.availableParcels.length) {
-      const [parcel, position] = this._state.availableParcels.splice(
-        index,
-        1
-      )[0];
-      intention = new PickUpIntention(position, [parcel]);
-      const timeToArrive =
-        this._state.environment.distance(this.position, position) *
-        movementDuration;
+    const parcel = this._state.availableParcels[idx][0];
+    const intention = Intention.pickup(parcel.position);
 
-      state = {
-        availableParcels: [...this._state.availableParcels],
-        pickedParcels: [...this._state.pickedParcels, parcel],
-        arrivalTime: Date.now() + timeToArrive,
-        environment: this._state.environment,
-      };
-    } else {
-      this._hasPutDown = true;
-      const position = this._state.environment.getClosestDeliveryPosition(
-        this.position
-      );
-      intention = new PutDownIntention(position, this._state.pickedParcels);
+    const timeToArrive =
+      this._state.environment.distance(this.position, parcel.position) *
+      movementDuration;
 
-      const timeToArrive =
-        this._state.environment.distance(this.position, position) *
-        movementDuration;
+    const parcels = this._state.availableParcels
+      .filter((_, i) => i !== idx)
+      .map((p) => p[0]);
 
-      state = {
-        availableParcels: [...this._state.availableParcels],
-        pickedParcels: [],
-        arrivalTime: Date.now() + timeToArrive,
-        environment: this._state.environment,
-      };
-    }
+    const state = {
+      availableParcels: parcels,
+      pickedParcels: [...this._state.pickedParcels, parcel],
+      arrivalTime: Date.now() + timeToArrive,
+      environment: this._state.environment,
+    };
 
     const node = new Node(state, intention, null);
-    this._children.push(node);
+    const nodeID = NodeID.new();
+
+    this._state.availableParcels[idx][2] = nodeID;
+    this._children.set(nodeID, node);
+
     return node;
   }
 
   private getBestChild(explorationParameter: number): Node {
-    if (this._children.length === 0) {
-      throw new Error('No children');
+    const now = Date.now();
+    let upperBound = 1e-5;
+    for (const [parcel] of this._state.availableParcels) {
+      upperBound += parcel.value.getValueByInstant(now);
     }
 
     let bestChild = null;
     let bestScore = Number.NEGATIVE_INFINITY;
 
     const { movementDuration } = Config.getInstance();
-    const now = Date.now();
-    for (const child of this._children) {
+    for (const child of this._children.values()) {
       const distance = this._state.environment.distance(
         this.position,
         child.intention.position
@@ -370,7 +171,9 @@ export class MonteCarloPlanner {
       const arrivalTime = now + distance * movementDuration;
 
       const exploitation =
-        child.utility.getValueByInstant(arrivalTime) / child.visits;
+        child.utility.getValueByInstant(arrivalTime) /
+        child.visits /
+        upperBound;
       const exploration = Math.sqrt(Math.log(this._visits) / child.visits);
       const score = exploitation + explorationParameter * exploration;
 
@@ -380,7 +183,32 @@ export class MonteCarloPlanner {
       }
     }
 
-    return bestChild!;
+    if (bestChild === null) {
+      throw new Error('No children');
+    }
+
+    return bestChild;
+  }
+
+  public run(): void {
+    if (
+      this._state.availableParcels.length === 0 &&
+      (this._intention === null ||
+        this._intention.type === IntentionType.PUTDOWN)
+    ) {
+      this.setMoveIntention();
+    } else {
+      let node = this.selectChild();
+      while (!node.isTerminal()) {
+        node = node.selectChild();
+      }
+
+      const utility = new Utility(0, [], node.state.arrivalTime);
+      node.backpropagate(utility);
+      this._visits += 1;
+
+      setImmediate(this.run.bind(this));
+    }
   }
 
   public getBestIntention(): Intention | null {
@@ -393,7 +221,7 @@ export class MonteCarloPlanner {
 
     const now = Date.now();
     const { movementDuration } = Config.getInstance();
-    for (const child of this._children) {
+    for (const child of this._children.values()) {
       const distance = this._state.environment.distance(
         this.position,
         child.intention.position
@@ -407,33 +235,33 @@ export class MonteCarloPlanner {
       }
     }
 
-    // if (bestIntention === null) {
-    //   console.log('No best intention found');
-    // } else {
-    //   console.log(bestIntention);
-    //   const idx = this._children.findIndex((child) =>
-    //     child.intention.equals(bestIntention!)
-    //   );
-    //   const child = this._children[idx];
-    //   const utility =
-    //     child.utility.getValueByInstant(Date.now()) / child.visits;
-    //   console.log(utility);
-    // }
-
     return bestIntention;
   }
 
   public handleChanges(changes: EnviromentChange): void {
-    if (changes.newFreeParcels.length !== 0) {
-      this._state.availableParcels.push(...changes.newFreeParcels);
-      for (const child of this._children) {
-        child.addParcels(changes.newFreeParcels);
-      }
+    for (const parcel of changes.noLongerFreeParcels) {
+      const index = this._state.availableParcels.findIndex((p) =>
+        p[0].id.equals(parcel.id)
+      );
 
-      if (this._moveIntention !== null) {
-        this._moveIntention = null;
-        this.run();
+      if (index !== -1) {
+        const rem = this._state.availableParcels.splice(index, 1)[0];
+        if (rem[2] !== null) {
+          this._children.delete(rem[2]!);
+        }
       }
+    }
+
+    if (changes.newFreeParcels.length > 0) {
+      this._state.availableParcels = utils.merge(
+        this._state.availableParcels,
+        this.sort(changes.newFreeParcels),
+        (a, b) => b[1] - a[1]
+      );
+    }
+
+    for (const child of this._children.values()) {
+      child.handleChanges(changes);
     }
   }
 
@@ -444,7 +272,8 @@ export class MonteCarloPlanner {
       return;
     }
 
-    const performedChild = this._children.find((child) =>
+    const children = [...this._children.values()];
+    const performedChild = children.find((child) =>
       child.intention.equals(intention)
     );
 
@@ -453,12 +282,12 @@ export class MonteCarloPlanner {
     }
 
     this._children = performedChild.children;
+    this._intention = performedChild.intention;
     this._state = performedChild.state;
     this.position = intention.position;
-    this._hasPutDown = performedChild.hasPutDown;
     this._visits = performedChild.visits;
 
-    for (const child of this._children) {
+    for (const child of this._children.values()) {
       child.parent = null;
     }
   }

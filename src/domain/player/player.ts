@@ -7,13 +7,7 @@ import winston, { createLogger, Logger } from 'winston';
 import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
 import { sleep } from 'src/utils';
-import {
-  Config,
-  Intention,
-  PickUpIntention,
-  Position,
-  PutDownIntention,
-} from 'src/domain/structs';
+import { Config, Intention, IntentionType, Position } from 'src/domain/structs';
 import { MonteCarloPlanner } from './planner';
 
 export class Player {
@@ -63,10 +57,15 @@ export class Player {
 
   private async performIntention(intention: Intention) {
     if (this._planner.position.equals(intention.position)) {
-      if (intention instanceof PickUpIntention) {
-        await this._actuators.pickup();
-      } else if (intention instanceof PutDownIntention) {
-        await this._actuators.putdown(intention.parcels);
+      switch (intention.type) {
+        case IntentionType.PICKUP:
+          await this._actuators.pickup();
+          break;
+        case IntentionType.PUTDOWN:
+          await this._actuators.putdown(null);
+          break;
+        default:
+          break;
       }
 
       this._planner.performedIntention(intention);

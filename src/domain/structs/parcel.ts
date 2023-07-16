@@ -4,6 +4,8 @@
 
 import { Hashable } from 'src/utils';
 import { Config } from './config';
+import type { AgentID } from './agent';
+import { Position } from './location';
 
 // ---------------------------------------------------------------------------
 // ParcelID
@@ -83,10 +85,12 @@ export class DecayingValue {
 // Parcel
 // ---------------------------------------------------------------------------
 
-export class Parcel {
+export class Parcel implements Hashable {
   public constructor(
     public readonly id: ParcelID,
-    public readonly value: DecayingValue
+    public readonly value: DecayingValue,
+    public readonly position: Position,
+    public readonly agentID: AgentID | null
   ) {}
 
   public equals(other: Parcel): boolean {

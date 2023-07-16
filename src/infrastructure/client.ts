@@ -6,7 +6,6 @@ import { Socket, io } from 'socket.io-client';
 
 import { Actuators, Sensors } from 'src/domain/ports';
 import {
-  Agent,
   AgentID,
   Config,
   DecayingValue,
@@ -22,7 +21,7 @@ import { HashSet, sleep } from 'src/utils';
 export class Client implements Actuators, Sensors {
   private readonly _socket: Socket;
 
-  private _agentState?: Agent;
+  private _agentPosition?: Position;
 
   private _crossableTiles?: Tile[];
 
@@ -38,16 +37,13 @@ export class Client implements Actuators, Sensors {
       autoConnect: true,
     });
 
-    this._socket.on('you', this.setAgentState.bind(this));
+    this._socket.on('you', this.setPosition.bind(this));
     this._socket.once('map', this.setMap.bind(this));
     this._socket.once('config', this.setConfig.bind(this));
   }
 
-  private setAgentState(agent: any) {
-    this._agentState = new Agent(
-      new AgentID(agent.id),
-      new Position(agent.x, agent.y)
-    );
+  private setPosition(agent: any) {
+    this._agentPosition = new Position(agent.x, agent.y);
   }
 
   private setMap(width: number, height: number, tiles: any[]) {
@@ -109,13 +105,13 @@ export class Client implements Actuators, Sensors {
     };
   }
 
-  public async getState(): Promise<Agent> {
-    while (this._agentState === undefined) {
+  public async getPosition(): Promise<Position> {
+    while (this._agentPosition === undefined) {
       // eslint-disable-next-line no-await-in-loop
       await sleep(100);
     }
 
-    return this._agentState;
+    return this._agentPosition;
   }
 
   public async getCrossableTiles(): Promise<Tile[]> {
@@ -187,21 +183,28 @@ export class Client implements Actuators, Sensors {
     });
   }
 
-  public onParcelSensing(
-    callback: (parcels: [Parcel, Position, AgentID | null][]) => void
-  ): void {
+  public onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void {
     this._socket.on('parcels sensing', (parcels) => {
-      const newParcels: [Parcel, Position, AgentID | null][] = [];
+      const newParcels = new HashSet<Parcel>();
       // eslint-disable-next-line no-restricted-syntax
       for (const parcel of parcels) {
-        newParcels.push([
-          new Parcel(new ParcelID(parcel.id), new DecayingValue(parcel.reward)),
-          new Position(parcel.x, parcel.y),
-          parcel.carriedBy ? new AgentID(parcel.carriedBy) : null,
-        ]);
+        newParcels.add(
+          new Parcel(
+            new ParcelID(parcel.id),
+            new DecayingValue(parcel.reward),
+            new Position(parcel.x, parcel.y),
+            parcel.carriedBy ? new AgentID(parcel.carriedBy) : null
+          )
+        );
       }
 
       callback(newParcels);
+    });
+  }
+
+  public onPositionUpdate(callback: (position: Position) => void): void {
+    this._socket.on('you', (agent) => {
+      callback(new Position(agent.x, agent.y));
     });
   }
 }

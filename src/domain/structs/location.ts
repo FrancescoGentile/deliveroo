@@ -26,6 +26,12 @@ export class Position implements Hashable {
     return this.row * size.columns + this.column;
   }
 
+  public manhattanDistance(other: Position): number {
+    return (
+      Math.abs(this.row - other.row) + Math.abs(this.column - other.column)
+    );
+  }
+
   public moveTo(direction: Direction): Position {
     switch (direction) {
       case Direction.UP:

@@ -4,7 +4,7 @@
 
 import EventEmitter from 'eventemitter3';
 
-import { HashMap } from 'src/utils';
+import { HashMap, HashSet } from 'src/utils';
 import {
   Agent,
   AgentID,
@@ -21,8 +21,7 @@ import { Map, buildMap } from './map';
 import { kmax } from './utils';
 
 interface State {
-  freeParcels: HashMap<ParcelID, [Parcel, Position]>;
-  carriedParcels: HashMap<ParcelID, [Parcel, AgentID]>;
+  freeParcels: HashMap<ParcelID, Parcel>;
   agents: HashMap<AgentID, Agent>;
   visibleAgents: Agent[];
 }
@@ -30,9 +29,12 @@ interface State {
 export class Environment {
   private _map!: Map;
 
+  private _parcelRadius: number = 0;
+
+  private _position: Position = new Position(0, 0);
+
   private readonly _state: State = {
     freeParcels: new HashMap(),
-    carriedParcels: new HashMap(),
     agents: new HashMap(),
     visibleAgents: [],
   };
@@ -42,6 +44,10 @@ export class Environment {
   public static async new(sensors: Sensors): Promise<Environment> {
     const env = new Environment();
     sensors.onParcelSensing((parcels) => env.onParcelSensing(parcels));
+    sensors.onPositionUpdate((position) => {
+      env._position = position;
+    });
+
     setInterval(() => env.removeDeadParcels(), 10000);
 
     const [config, size, tiles] = await Promise.all([
@@ -50,6 +56,7 @@ export class Environment {
       sensors.getCrossableTiles(),
     ]);
     Config.configure(config);
+    env._parcelRadius = config.parcelRadius;
 
     const map = await buildMap(size, tiles);
     env._map = map;
@@ -57,59 +64,51 @@ export class Environment {
     return env;
   }
 
-  private onParcelSensing(parcels: [Parcel, Position, AgentID | null][]) {
+  private onParcelSensing(parcels: HashSet<Parcel>) {
     const change: EnviromentChange = {
       newFreeParcels: [],
-      nowCarriedParcels: [],
+      noLongerFreeParcels: [],
     };
 
-    for (const [parcel, position, agentID] of parcels) {
-      if (agentID === null) {
+    for (const parcel of this._state.freeParcels.values()) {
+      if (
+        !parcels.has(parcel) &&
+        this._position.manhattanDistance(parcel.position) <= this._parcelRadius
+      ) {
+        this._state.freeParcels.delete(parcel.id);
+        change.noLongerFreeParcels.push(parcel);
+      }
+    }
+
+    for (const parcel of parcels.values()) {
+      if (parcel.agentID === null) {
         if (this._state.freeParcels.has(parcel.id)) {
           // the parcel is still free
-          this._state.freeParcels.set(parcel.id, [parcel, position]);
-        } else if (this._state.carriedParcels.has(parcel.id)) {
-          // the parcel was carried and is now free
-          this._state.carriedParcels.delete(parcel.id);
-          this._state.freeParcels.set(parcel.id, [parcel, position]);
-          change.newFreeParcels.push([parcel, position]);
+          this._state.freeParcels.set(parcel.id, parcel);
         } else {
           // the parcel is new
-          this._state.freeParcels.set(parcel.id, [parcel, position]);
-          change.newFreeParcels.push([parcel, position]);
+          this._state.freeParcels.set(parcel.id, parcel);
+          change.newFreeParcels.push(parcel);
         }
       } else if (this._state.freeParcels.has(parcel.id)) {
         // the parcel was free and is now carried
         this._state.freeParcels.delete(parcel.id);
-        this._state.carriedParcels.set(parcel.id, [parcel, agentID]);
-        change.nowCarriedParcels.push([parcel, agentID]);
-      } else if (this._state.carriedParcels.has(parcel.id)) {
-        // the parcel is still carried
-        this._state.carriedParcels.set(parcel.id, [parcel, agentID]);
-      } else {
-        // the parcel is new
-        this._state.carriedParcels.set(parcel.id, [parcel, agentID]);
+        change.noLongerFreeParcels.push(parcel);
       }
     }
 
     if (
       change.newFreeParcels.length > 0 ||
-      change.nowCarriedParcels.length > 0
+      change.noLongerFreeParcels.length > 0
     ) {
       this._broker.emit('change', change);
     }
   }
 
   private removeDeadParcels() {
-    for (const [id, [parcel, _]] of this._state.freeParcels.entries()) {
+    for (const parcel of this._state.freeParcels.values()) {
       if (parcel.value.getValueByInstant() === 0) {
-        this._state.freeParcels.delete(id);
-      }
-    }
-
-    for (const [id, [parcel, _]] of this._state.carriedParcels.entries()) {
-      if (parcel.value.getValueByInstant() === 0) {
-        this._state.carriedParcels.delete(id);
+        this._state.freeParcels.delete(parcel.id);
       }
     }
   }
@@ -118,7 +117,7 @@ export class Environment {
     this._broker.on('change', callback);
   }
 
-  public getFreeParcels(): [Parcel, Position][] {
+  public getFreeParcels(): Parcel[] {
     return [...this._state.freeParcels.values()];
   }
 

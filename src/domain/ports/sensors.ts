@@ -2,22 +2,15 @@
 //
 //
 
-import {
-  AgentID,
-  Agent,
-  Config,
-  GridSize,
-  Parcel,
-  Position,
-  Tile,
-} from 'src/domain/structs';
+import { Config, GridSize, Parcel, Position, Tile } from 'src/domain/structs';
+import { HashSet } from 'src/utils';
 
 export interface Sensors {
   /**
-   * Gets the agent's current state.
-   * @returns The agent's current state.
+   * Gets the agent's current position
+   * @returns The agent's current position.
    */
-  getState(): Promise<Agent>;
+  getPosition(): Promise<Position>;
 
   /**
    * Gets the tiles that are crossable.
@@ -41,7 +34,11 @@ export interface Sensors {
    * Gets the parcels that are currently being sensed.
    * @param callback The callback to call when parcels are sensed.
    */
-  onParcelSensing(
-    callback: (parcels: [Parcel, Position, AgentID | null][]) => void
-  ): void;
+  onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void;
+
+  /**
+   * Gets the position of the agent when it is updated.
+   * @param callback The callback to call when the position is updated.
+   */
+  onPositionUpdate(callback: (position: Position) => void): void;
 }
