@@ -67,7 +67,7 @@ export class Node {
         this._reward += parcel.value.getValueByInstant(state.arrivalTime);
       }
 
-      state.pickedParcels.splice(0, state.pickedParcels.length);
+      // state.pickedParcels.splice(0, state.pickedParcels.length);
     }
   }
 
@@ -138,9 +138,17 @@ export class Node {
     const parcels = this._state.availableParcels
       .filter((_, i) => i !== idx)
       .map((p) => p[0]);
+
+    let pickedParcels: Parcel[];
+    if (this.intention.type === IntentionType.PUTDOWN) {
+      pickedParcels = [parcel];
+    } else {
+      pickedParcels = [...this._state.pickedParcels, parcel];
+    }
+
     const state = {
       availableParcels: parcels,
-      pickedParcels: [...this._state.pickedParcels, parcel],
+      pickedParcels,
       arrivalTime: this._state.arrivalTime + timeToArrive,
       environment: this._state.environment,
     };
@@ -149,6 +157,10 @@ export class Node {
   }
 
   public handleChanges(changes: EnviromentChange): void {
+    for (const child of this._children.values()) {
+      child.handleChanges(changes);
+    }
+
     for (const parcel of changes.noLongerFreeParcels) {
       const index = this._state.availableParcels.findIndex((p) =>
         p[0].id.equals(parcel.id)
@@ -168,10 +180,6 @@ export class Node {
         this.sort(changes.newFreeParcels),
         (a, b) => b[1] - a[1]
       );
-    }
-
-    for (const child of this._children.values()) {
-      child.handleChanges(changes);
     }
   }
 
@@ -244,17 +252,26 @@ export class Node {
   }
 
   public backpropagate(utility: Utility) {
-    const tmp = utility.newWith(
-      this._reward,
-      this.state.pickedParcels,
-      this.state.arrivalTime
-    );
+    let toBePassed: Utility;
 
-    this.utility.add(tmp);
+    if (this.intention.type === IntentionType.PUTDOWN) {
+      const tmp = utility.newWith(
+        this._reward,
+        this.state.pickedParcels,
+        this.state.arrivalTime
+      );
+
+      this.utility.add(tmp);
+      toBePassed = tmp;
+    } else {
+      this.utility.add(utility);
+      toBePassed = utility;
+    }
+
     this._visits += 1;
 
     if (this.parent !== null) {
-      this.parent.backpropagate(tmp);
+      this.parent.backpropagate(toBePassed);
     }
   }
 }

@@ -8,7 +8,6 @@ import { Actuators, Sensors } from 'src/domain/ports';
 import {
   AgentID,
   Agent,
-  AgentType,
   Config,
   DecayingValue,
   Direction,
@@ -18,12 +17,14 @@ import {
   Position,
   Tile,
 } from 'src/domain/structs';
-import { HashSet, sleep } from 'src/utils';
+import { HashSet, Instant, sleep } from 'src/utils';
 
 export class Client implements Actuators, Sensors {
   private readonly _socket: Socket;
 
   private _agentPosition?: Position;
+
+  private _agentID?: AgentID;
 
   private _crossableTiles?: Tile[];
 
@@ -39,13 +40,14 @@ export class Client implements Actuators, Sensors {
       autoConnect: true,
     });
 
-    this._socket.on('you', this.setAgentPosition.bind(this));
+    this._socket.on('you', this.setAgentInfo.bind(this));
     this._socket.once('map', this.setMap.bind(this));
     this._socket.once('config', this.setConfig.bind(this));
   }
 
-  private setAgentPosition(agent: any) {
+  private setAgentInfo(agent: any) {
     this._agentPosition = new Position(agent.x, agent.y);
+    this._agentID = new AgentID(agent.id);
   }
 
   private setMap(width: number, height: number, tiles: any[]) {
@@ -135,6 +137,15 @@ export class Client implements Actuators, Sensors {
     return this._agentPosition;
   }
 
+  public async getID(): Promise<AgentID> {
+    while (this._agentID === undefined) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(100);
+    }
+
+    return this._agentID;
+  }
+
   public async getCrossableTiles(): Promise<Tile[]> {
     while (this._crossableTiles === undefined) {
       // eslint-disable-next-line no-await-in-loop
@@ -178,7 +189,6 @@ export class Client implements Actuators, Sensors {
     return new Promise((resolve, _reject) => {
       this._socket.emit('pickup', (response: any[]) => {
         const parcels: HashSet<ParcelID> = new HashSet<ParcelID>();
-        // eslint-disable-next-line no-restricted-syntax
         for (const parcel of response) {
           parcels.add(new ParcelID(parcel.id));
         }
@@ -194,7 +204,6 @@ export class Client implements Actuators, Sensors {
         parcels !== null ? parcels.map((parcel) => parcel.id.toString()) : null;
       this._socket.emit('putdown', ids, (response: any[]) => {
         const putDownParcels: HashSet<ParcelID> = new HashSet<ParcelID>();
-        // eslint-disable-next-line no-restricted-syntax
         for (const parcel of response) {
           putDownParcels.add(new ParcelID(parcel.id));
         }
@@ -207,7 +216,6 @@ export class Client implements Actuators, Sensors {
   public onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void {
     this._socket.on('parcels sensing', (parcels) => {
       const newParcels = new HashSet<Parcel>();
-      // eslint-disable-next-line no-restricted-syntax
       for (const parcel of parcels) {
         newParcels.add(
           new Parcel(
@@ -219,7 +227,9 @@ export class Client implements Actuators, Sensors {
         );
       }
 
-      callback(newParcels);
+      if (newParcels.size > 0) {
+        callback(newParcels);
+      }
     });
   }
 
@@ -232,23 +242,23 @@ export class Client implements Actuators, Sensors {
   public onAgentSensing(callback: (agents: Agent[]) => void): void {
     this._socket.on('agents sensing', (agents) => {
       const newAgents: Agent[] = [];
-      // eslint-disable-next-line no-restricted-syntax
       for (const agent of agents) {
         if (Number.isInteger(agent.x) && Number.isInteger(agent.y)) {
           newAgents.push(
             new Agent(
               new AgentID(agent.id),
               new Position(agent.x, agent.y),
-              [],
               agent.score,
-              AgentType.RANDOM,
-              Date.now()
+              Instant.now(),
+              false
             )
           );
         }
       }
 
-      callback(newAgents);
+      if (newAgents.length > 0) {
+        callback(newAgents);
+      }
     });
   }
 }

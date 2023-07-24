@@ -138,9 +138,19 @@ export class MonteCarloPlanner {
       .filter((_, i) => i !== idx)
       .map((p) => p[0]);
 
+    let pickedParcels: Parcel[];
+    if (
+      this._intention !== null &&
+      this._intention.type === IntentionType.PUTDOWN
+    ) {
+      pickedParcels = [parcel];
+    } else {
+      pickedParcels = [...this._state.pickedParcels, parcel];
+    }
+
     const state = {
       availableParcels: parcels,
-      pickedParcels: [...this._state.pickedParcels, parcel],
+      pickedParcels,
       arrivalTime: Date.now() + timeToArrive,
       environment: this._state.environment,
     };
@@ -213,34 +223,86 @@ export class MonteCarloPlanner {
     }
   }
 
-  public getBestIntention(): Intention | null {
+  public getBestIntention(
+    actual_distance: [Intention, number] | null
+  ): Intention | null {
     if (this._moveIntention !== null) {
       return this._moveIntention;
     }
 
+    // console.log('Children:');
+
     let bestIntention: Intention | null = null;
     let bestScore = Number.NEGATIVE_INFINITY;
+    // let bestChild: Node | null = null;
 
     const now = Date.now();
     const { movementDuration } = Config.getInstance();
     for (const child of this._children.values()) {
-      const distance = this._state.environment.distance(
-        this.position,
-        child.intention.position
-      );
+      let distance: number;
+      if (
+        actual_distance !== null &&
+        actual_distance[0].equals(child.intention)
+      ) {
+        [, distance] = actual_distance;
+      } else {
+        distance = this._state.environment.distance(
+          this.position,
+          child.intention.position
+        );
+      }
       const arrivalTime = now + distance * movementDuration;
-      const score = child.utility.getValueByInstant(arrivalTime) / child.visits;
+      let score = child.utility.getValueByInstant(arrivalTime) / child.visits;
+
+      // const obj = {
+      //   score,
+      //   visits: child.visits,
+      //   intention: child.intention,
+      // };
+      // console.log(obj);
+
+      if (child.intention.type === IntentionType.PICKUP) {
+        let minEnemysDistance = Number.POSITIVE_INFINITY;
+        for (const enemy of this._state.environment.getVisibleAgents()) {
+          if (enemy.random) {
+            continue;
+          }
+
+          const enemyDistance = this._state.environment.distance(
+            enemy.currentPosition,
+            child.intention.position
+          );
+
+          if (enemyDistance < minEnemysDistance) {
+            minEnemysDistance = enemyDistance;
+          }
+        }
+
+        if (minEnemysDistance < distance) {
+          const factor = 1 - 1 / (1 + minEnemysDistance);
+          score *= factor ** 2;
+        }
+      }
 
       if (score > bestScore) {
         bestIntention = child.intention;
         bestScore = score;
+        // bestChild = child;
       }
     }
+
+    // if (bestChild !== null) {
+    //   console.log(bestChild.utility);
+    // }
 
     return bestIntention;
   }
 
   public handleChanges(changes: EnviromentChange): void {
+    for (const child of this._children.values()) {
+      child.handleChanges(changes);
+    }
+
     for (const parcel of changes.noLongerFreeParcels) {
       const index = this._state.availableParcels.findIndex((p) =>
         p[0].id.equals(parcel.id)
@@ -260,10 +322,13 @@ export class MonteCarloPlanner {
         this.sort(changes.newFreeParcels),
         (a, b) => b[1] - a[1]
       );
-    }
 
-    for (const child of this._children.values()) {
-      child.handleChanges(changes);
+      if (
+        this._state.availableParcels.length === changes.newFreeParcels.length
+      ) {
+        this._moveIntention = null;
+        this.run();
+      }
     }
   }
 

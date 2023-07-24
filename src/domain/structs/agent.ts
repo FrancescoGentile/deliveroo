@@ -2,9 +2,8 @@
 //
 //
 
-import { Hashable } from 'src/utils';
+import { Hashable, Instant } from 'src/utils';
 import { Position } from './location';
-import { ParcelID } from './parcel';
 
 export class AgentID implements Hashable {
   private readonly _id: string;
@@ -26,19 +25,13 @@ export class AgentID implements Hashable {
   }
 }
 
-export enum AgentType {
-  RANDOM = 'random',
-  SMART = 'smart',
-}
-
 export class Agent implements Hashable {
   public constructor(
     public readonly id: AgentID,
-    public position: Position,
-    public readonly carriedParcels: ParcelID[],
+    public currentPosition: Position,
     public score: number,
-    public type: AgentType,
-    public lastSeen: number
+    public firstSeen: Instant,
+    public random: boolean
   ) {}
 
   public equals(other: Agent): boolean {

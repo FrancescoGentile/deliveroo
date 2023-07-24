@@ -4,7 +4,9 @@
 
 import EventEmitter from 'eventemitter3';
 import * as math from 'mathjs';
-import { HashMap, HashSet } from 'src/utils';
+import PriorityQueue from 'ts-priority-queue';
+
+import { HashMap, HashSet, Instant } from 'src/utils';
 import {
   Agent,
   AgentID,
@@ -15,7 +17,6 @@ import {
   ParcelID,
   Position,
   Tile,
-  AgentType,
   PDDLProblem,
 } from 'src/domain/structs';
 import { Sensors } from 'src/domain/ports';
@@ -24,9 +25,9 @@ import { kmax } from './utils';
 
 interface State {
   freeParcels: HashMap<ParcelID, Parcel>;
-  carriedParcels: HashMap<ParcelID, Parcel>;
   agents: HashMap<AgentID, Agent>;
   visibleAgents: Agent[];
+  numSmartAgents: number;
 }
 
 export class Environment {
@@ -36,11 +37,13 @@ export class Environment {
 
   private _position: Position = new Position(0, 0);
 
+  private _id: AgentID = new AgentID('-1');
+
   private readonly _state: State = {
     freeParcels: new HashMap(),
-    carriedParcels: new HashMap(),
     agents: new HashMap(),
     visibleAgents: [],
+    numSmartAgents: 1, // the main player is always smart
   };
 
   private readonly _broker: EventEmitter = new EventEmitter();
@@ -54,17 +57,17 @@ export class Environment {
 
     setInterval(() => env.removeDeadParcels(), 10000);
 
-    const [config, size, tiles] = await Promise.all([
+    const [config, size, tiles, id] = await Promise.all([
       sensors.getConfig(),
       sensors.getGridSize(),
       sensors.getCrossableTiles(),
+      sensors.getID(),
     ]);
     Config.configure(config);
     env._parcelRadius = config.parcelRadius;
+    env._id = id;
 
-    sensors.onAgentSensing((agents) =>
-      env.onAgentSensing(agents, tiles.length)
-    );
+    sensors.onAgentSensing((agents) => env.onAgentSensing(agents));
 
     const map = await buildMap(size, tiles);
     env._map = map;
@@ -93,27 +96,18 @@ export class Environment {
         if (this._state.freeParcels.has(parcel.id)) {
           // the parcel is still free
           this._state.freeParcels.set(parcel.id, parcel);
-        } else if (this._state.carriedParcels.has(parcel.id)) {
-          // the parcel was carried and is now free
-          this._state.carriedParcels.delete(parcel.id);
-          this._state.freeParcels.set(parcel.id, parcel);
-          change.newFreeParcels.push(parcel);
         } else {
           // the parcel is new
           this._state.freeParcels.set(parcel.id, parcel);
           change.newFreeParcels.push(parcel);
         }
-      } else if (this._state.freeParcels.has(parcel.id)) {
+      } else if (
+        this._state.freeParcels.has(parcel.id) &&
+        !parcel.agentID.equals(this._id) // we do not care about the parcels carried by us
+      ) {
         // the parcel was free and is now carried
         this._state.freeParcels.delete(parcel.id);
-        this._state.carriedParcels.set(parcel.id, parcel);
         change.noLongerFreeParcels.push(parcel);
-      } else if (this._state.carriedParcels.has(parcel.id)) {
-        // the parcel is still carried
-        this._state.carriedParcels.set(parcel.id, parcel);
-      } else {
-        // the parcel is new
-        this._state.carriedParcels.set(parcel.id, parcel);
       }
     }
 
@@ -131,53 +125,44 @@ export class Environment {
         this._state.freeParcels.delete(id);
       }
     }
-
-    for (const [id, parcel] of this._state.carriedParcels.entries()) {
-      if (parcel.value.getValueByInstant() === 0) {
-        this._state.carriedParcels.delete(id);
-      }
-    }
   }
 
-  private onAgentSensing(agents: Agent[], tiles: number) {
-    const now = Date.now();
-    const avgParcelsDistance = tiles / Config.getInstance().maxParcels;
+  private onAgentSensing(agents: Agent[]) {
+    const now = Instant.now();
+    const numTiles = this._map.size.rows * this._map.size.columns;
+    const avgParcelsDistance = numTiles / Config.getInstance().maxParcels;
+    this._state.visibleAgents = [];
+
     for (const agent of agents) {
       // agent seen before
       if (this._state.agents.has(agent.id)) {
         const oldAgent = this._state.agents.get(agent.id)!;
         const visitedTiles =
-          now - oldAgent.lastSeen * Config.getInstance().movementDuration;
+          now.subtract(oldAgent.firstSeen).milliseconds /
+          Config.getInstance().movementDuration;
         const avgScore =
           ((visitedTiles / avgParcelsDistance) *
             Config.getInstance().parcelRewardAverage) /
-          Config.getInstance().randomAgents;
-        let agentType = AgentType.SMART;
+          this._state.numSmartAgents;
+
+        let random = false;
         if (Config.getInstance().randomAgents > 0) {
-          agentType =
-            avgScore > agent.score - oldAgent.score
-              ? AgentType.RANDOM
-              : AgentType.SMART;
+          random = avgScore > agent.score;
         }
+
         const updatedAgent = new Agent(
           agent.id,
-          agent.position,
-          agent.carriedParcels,
+          agent.currentPosition,
           agent.score,
-          agentType,
-          now
+          oldAgent.firstSeen,
+          random
         );
+
         this._state.agents.set(agent.id, updatedAgent);
+        this._state.visibleAgents.push(updatedAgent);
       } else {
         this._state.agents.set(agent.id, agent);
-      }
-
-      if (this._state.visibleAgents.includes(agent)) {
-        const idx = this._state.visibleAgents.indexOf(agent);
-        const oldAgent = this._state.visibleAgents[idx];
-        this._state.visibleAgents[idx] = agent;
-        this._state.visibleAgents[idx].type = oldAgent.type;
-      } else {
+        agent.random = false;
         this._state.visibleAgents.push(agent);
       }
     }
@@ -194,11 +179,10 @@ export class Environment {
   public getPromisingPositions(playerPosition: Position): [Position, number][] {
     const weights = this._map.tileWeights;
     const numTiles = this._map.crossableTiles.length;
-    const { parcelRadius } = Config.getInstance();
-    const { agentRadius } = Config.getInstance();
+    const { parcelRadius, agentRadius } = Config.getInstance();
     const std = 1.0;
     const agentsPositions = [
-      ...this._state.visibleAgents.map((agent) => agent.position),
+      ...this._state.visibleAgents.map((agent) => agent.currentPosition),
       playerPosition,
     ];
     for (const position of agentsPositions) {
@@ -282,6 +266,65 @@ export class Environment {
     }
 
     return Direction.LEFT;
+  }
+
+  /**
+   * Computes the shortest path from start to end taking into account the
+   * current state of the environment.
+   * @param start The starting position.
+   * @param end The ending position.
+   * @returns The shortest path from start to end or null if no path exists.
+   */
+  public recomputePath(start: Position, end: Position): Direction[] | null {
+    const positions = this._map.crossableIndexes.copy();
+    for (const agent of this._state.visibleAgents) {
+      positions.delete(agent.currentPosition);
+    }
+
+    const frontier = new PriorityQueue<[Position, number]>({
+      comparator: (a, b) => a[1] - b[1],
+    });
+    frontier.queue([start, 0]);
+    const cameFrom = new HashMap<Position, Position | null>();
+    const costSoFar = new HashMap<Position, number>();
+    cameFrom.set(start, null);
+    costSoFar.set(start, 0);
+
+    while (frontier.length > 0) {
+      const current = frontier.dequeue()[0];
+
+      if (current.equals(end)) {
+        break;
+      }
+
+      for (const next of current.neigbours(this._map.size)) {
+        if (!positions.has(next)) {
+          continue;
+        }
+
+        const newCost = costSoFar.get(current)! + 1;
+        if (!costSoFar.has(next) || newCost < costSoFar.get(next)!) {
+          costSoFar.set(next, newCost);
+          const priority = newCost + this.distance(next, end);
+          frontier.queue([next, priority]);
+          cameFrom.set(next, current);
+        }
+      }
+    }
+
+    if (!cameFrom.has(end)) {
+      return null;
+    }
+
+    const path: Direction[] = [];
+    let current = end;
+    while (!current.equals(start)) {
+      const previous = cameFrom.get(current)!;
+      path.push(this.nextDirection(previous, current)!);
+      current = previous;
+    }
+
+    return path.reverse();
   }
 
   public getClosestDeliveryPosition(position: Position): Position {

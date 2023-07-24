@@ -22,10 +22,6 @@ export class Position implements Hashable {
     return new Position(row, column);
   }
 
-  public toIndex(size: GridSize): number {
-    return this.row * size.columns + this.column;
-  }
-
   public manhattanDistance(other: Position): number {
     return (
       Math.abs(this.row - other.row) + Math.abs(this.column - other.column)

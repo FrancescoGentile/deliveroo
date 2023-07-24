@@ -25,7 +25,9 @@ export class PDDLPlanner {
 
     const agents = [];
     for (const agent of this._environment.getVisibleAgents()) {
-      agents.push(`(agentAt t_${agent.position.row}_${agent.position.column})`);
+      agents.push(
+        `(agentAt t_${agent.currentPosition.row}_${agent.currentPosition.column})`
+      );
     }
     tmpProblem.addInitPredicate(agents.join(' '));
 

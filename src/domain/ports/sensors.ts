@@ -4,6 +4,7 @@
 
 import {
   Agent,
+  AgentID,
   Config,
   GridSize,
   Parcel,
@@ -14,10 +15,16 @@ import { HashSet } from 'src/utils';
 
 export interface Sensors {
   /**
-   * Gets the agent's current position
+   * Gets the agent's current position.
    * @returns The agent's current position.
    */
   getPosition(): Promise<Position>;
+
+  /**
+   * Gets the agent's id.
+   * @returns The agent's id.
+   */
+  getID(): Promise<AgentID>;
 
   /**
    * Gets the tiles that are crossable.

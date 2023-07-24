@@ -20,6 +20,9 @@ dependencies:
   socket.io-client:
     specifier: ^4.6.1
     version: 4.6.1
+  ts-priority-queue:
+    specifier: ^0.1.1
+    version: 0.1.1
   winston:
     specifier: ^3.8.2
     version: 3.8.2
@@ -3986,6 +3989,10 @@ packages:
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
     dev: true
+
+  /ts-priority-queue@0.1.1:
+    resolution: {integrity: sha512-jNwbk4ItfTHVopnlQ/Z7UUlbF1TNsdXS2cb1W8kI6lm8UauIjs8CYSOEh1E/yrIEhl+HVFUMp60ma6fKuvBhBQ==}
+    dev: false
 
   /tsconfig-paths@3.14.2:
     resolution: {integrity: sha512-o/9iXgCYc5L/JxCHPe3Hvh8Q/2xm5Z+p18PESBU6Ff33695QnCHBEjcytY2q19ua7Mbl/DavtBOLq+oG0RCL+g==}

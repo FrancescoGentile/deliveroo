@@ -7,9 +7,14 @@ import winston, { createLogger, Logger } from 'winston';
 import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
 import { sleep } from 'src/utils';
-import { Config, Intention, IntentionType, Position } from 'src/domain/structs';
+import {
+  Direction,
+  Intention,
+  IntentionType,
+  Position,
+} from 'src/domain/structs';
 import { MonteCarloPlanner } from './planner';
-import { PDDLPlanner } from './pddlPlanner';
+// import { PDDLPlanner } from './pddlPlanner';
 
 export class Player {
   private readonly _planner: MonteCarloPlanner;
@@ -20,7 +25,7 @@ export class Player {
 
   private readonly _logger: Logger;
 
-  private readonly _pddlPlanner: PDDLPlanner;
+  // private readonly _pddlPlanner: PDDLPlanner;
 
   public constructor(
     position: Position,
@@ -43,64 +48,72 @@ export class Player {
     this._actuators = actuators;
     this._environment = environment;
 
-    this._pddlPlanner = new PDDLPlanner(environment);
+    // this._pddlPlanner = new PDDLPlanner(environment);
   }
 
   public async run() {
+    let actual_path: [Intention, Direction[]] | null = null;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const intention = this._planner.getBestIntention();
+      let actual_distance: [Intention, number] | null = null;
+      if (actual_path !== null) {
+        if (actual_path[1].length === 0) {
+          actual_distance = [actual_path[0], Infinity];
+        } else {
+          actual_distance = [actual_path[0], actual_path[1].length];
+        }
+      }
+
+      // console.log(
+      //   '-----------------------------------------------------------------------'
+      // );
+      const intention = this._planner.getBestIntention(actual_distance);
+      // console.log(this._planner.position, intention);
+      // console.log('\n\n');
+
       if (intention === null) {
         // eslint-disable-next-line no-await-in-loop
         await sleep(100);
+      } else if (this._planner.position.equals(intention.position)) {
+        switch (intention.type) {
+          case IntentionType.PICKUP:
+            await this._actuators.pickup();
+            break;
+          case IntentionType.PUTDOWN:
+            await this._actuators.putdown(null);
+            break;
+          default:
+            break;
+        }
+
+        this._planner.performedIntention(intention);
       } else {
-        // eslint-disable-next-line no-await-in-loop
-        await this.performIntention(intention);
-      }
-    }
-  }
+        let direction: Direction;
+        if (actual_path === null || !actual_path[0].equals(intention)) {
+          direction = this._environment.nextDirection(
+            this._planner.position,
+            intention.position
+          )!;
+          actual_path = null;
+        } else {
+          direction = actual_path[1].shift()!;
+        }
 
-  private async performIntention(intention: Intention) {
-    if (this._planner.position.equals(intention.position)) {
-      switch (intention.type) {
-        case IntentionType.PICKUP:
-          await this._actuators.pickup();
-          break;
-        case IntentionType.PUTDOWN:
-          await this._actuators.putdown(null);
-          break;
-        default:
-          break;
-      }
+        const success = await this._actuators.move(direction);
+        if (success) {
+          this._planner.position = this._planner.position.moveTo(direction);
+        } else {
+          const path = this._environment.recomputePath(
+            this._planner.position,
+            intention.position
+          );
 
-      this._planner.performedIntention(intention);
-    } else {
-      const direction = this._environment.nextDirection(
-        this._planner.position,
-        intention.position
-      )!;
-
-      const success = await this._actuators.move(direction);
-      if (success) {
-        this._planner.position = this._planner.position.moveTo(direction);
-        await sleep(Config.getInstance().movementDuration);
-      } else {
-        this._logger.error('Failed to move agent to next position.');
-        // const plan = await this._pddlPlanner.getPlan(
-        //   this._planner.position,
-        //   intention.position
-        // );
-        // for (const move of plan) {
-        //   const action = await this._actuators.move(move);
-
-        //   if (action) {
-        //     this._planner.position = this._planner.position.moveTo(direction);
-        //     await sleep(Config.getInstance().movementDuration);
-        //   } else {
-        //     this._logger.error('Failed to move agent to next position.');
-        //     break;
-        //   }
-        // }
+          if (path === null) {
+            actual_path = [intention, []];
+          } else {
+            actual_path = [intention, path];
+          }
+        }
       }
     }
   }
