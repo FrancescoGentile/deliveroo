@@ -297,6 +297,17 @@ export class MonteCarloPlanner {
       }
     }
 
+    if (bestScore <= 0) {
+      if (this.isFullyExpanded()) {
+        clearImmediate(this._nextIteration);
+        this._nextIteration = undefined;
+        this._nextMoveIntention = this.getBestMoveIntention();
+        return this._nextMoveIntention;
+      } 
+        return this.getBestMoveIntention();
+      
+    }
+
     // console.log(treeify.asTree(this.getTree(this._children, now, this.position), true, false));
     // console.log("----------------------------------")
 
