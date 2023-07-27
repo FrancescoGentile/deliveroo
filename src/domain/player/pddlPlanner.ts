@@ -17,27 +17,18 @@ export class PDDLPlanner {
     this._problem = environment.toPDDL();
   }
 
-  public async getPlan(
-    agentPosition: Position,
-    agentDestination: Position
-  ): Promise<Direction[]> {
+  public async getPlan(agentPosition: Position, agentDestination: Position): Promise<Direction[]> {
     const tmpProblem = structuredClone(this._problem);
 
     const agents = [];
     for (const agent of this._environment.getVisibleAgents()) {
-      agents.push(
-        `(agentAt t_${agent.currentPosition.row}_${agent.currentPosition.column})`
-      );
+      agents.push(`(agentAt t_${agent.currentPosition.row}_${agent.currentPosition.column})`);
     }
     tmpProblem.addInitPredicate(agents.join(' '));
 
-    tmpProblem.addInitPredicate(
-      `(at t_${agentPosition.row}_${agentPosition.column})`
-    );
+    tmpProblem.addInitPredicate(`(at t_${agentPosition.row}_${agentPosition.column})`);
 
-    tmpProblem.addGoalPredicate(
-      `(at t_${agentDestination.row}_${agentDestination.column})`
-    );
+    tmpProblem.addGoalPredicate(`(at t_${agentDestination.row}_${agentDestination.column})`);
 
     await tmpProblem.toFile(this._problem_path);
     const plan = await this.runSolver();
@@ -52,15 +43,12 @@ export class PDDLPlanner {
 
   private async runSolver(): Promise<string> {
     return new Promise((resolve, reject) => {
-      exec(
-        `planutils run ff ${this._domain_path} ${this._problem_path}`,
-        (err, stdout) => {
-          if (err) {
-            reject(err);
-          }
-          resolve(stdout);
+      exec(`planutils run ff ${this._domain_path} ${this._problem_path}`, (err, stdout) => {
+        if (err) {
+          reject(err);
         }
-      );
+        resolve(stdout);
+      });
     });
   }
 }

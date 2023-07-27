@@ -2,7 +2,7 @@
 //
 //
 
-import { HashMap } from 'src/utils';
+import { HashMap, Instant } from 'src/utils';
 import { Parcel, ParcelID } from './parcel';
 
 export class Utility {
@@ -10,12 +10,12 @@ export class Utility {
 
   private _parcels: HashMap<ParcelID, [Parcel, number]>;
 
-  private _time: number;
+  private _time: Instant;
 
   public constructor(
     value: number,
     parcels: Parcel[] | HashMap<ParcelID, [Parcel, number]>,
-    time: number
+    time: Instant
   ) {
     this._value = value;
     if (parcels instanceof HashMap) {
@@ -31,22 +31,21 @@ export class Utility {
 
   /**
    * Computes the value at the given instance of time .
-   * @param instant The instance to compute the value at (in milliseconds). Defaults to the current time.
+   * @param instant The instance to compute the value at. Defaults to the current time.
    * @returns The value.
    */
-  public getValueByInstant(instant: number = Date.now()): number {
-    const tempDiff = instant - this._time;
+  public getValueByInstant(instant: Instant = Instant.now()): number {
     let valueDiff = 0;
 
     for (const [parcel, count] of this._parcels.values()) {
-      valueDiff += parcel.value.getValueDiff(this._time, tempDiff) * count;
+      valueDiff += parcel.value.getValueDiff(this._time, instant) * count;
     }
 
     const value = this._value - valueDiff;
     return value < 0 ? 0 : value;
   }
 
-  public newWith(reward: number, parcels: Parcel[], time: number): Utility {
+  public newWith(reward: number, parcels: Parcel[], time: Instant): Utility {
     const newValue = this._value + reward;
     const newParcels = this._parcels.copy();
 

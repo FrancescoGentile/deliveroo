@@ -14,10 +14,7 @@ async function main() {
     throw new Error('HOST and TOKEN must be set.');
   }
 
-  const [sensors, actuators] = await initInfrastructure(
-    process.env.HOST,
-    process.env.TOKEN
-  );
+  const [sensors, actuators] = await initInfrastructure(process.env.HOST, process.env.TOKEN);
   const player = await initDomain(sensors, actuators);
   await player.run();
 }

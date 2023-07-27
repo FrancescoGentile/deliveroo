@@ -2,6 +2,8 @@
 //
 //
 
+import { Duration } from 'src/utils';
+
 export interface Config {
   readonly parcelGenerationInterval: number; // 2000
 
@@ -13,7 +15,7 @@ export interface Config {
 
   readonly movementSteps: number; // 1
 
-  readonly movementDuration: number; // 500
+  readonly movementDuration: Duration; // 500
 
   readonly parcelRadius: number; // 10
 

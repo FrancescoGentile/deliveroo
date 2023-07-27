@@ -2,12 +2,11 @@
 //
 //
 
-import * as utils from 'src/utils';
-import { HashMap } from 'src/utils';
+// import treeify from 'treeify';
+import { Instant } from 'src/utils';
 import {
   Config,
   DecayingValue,
-  EnviromentChange,
   Intention,
   IntentionType,
   Parcel,
@@ -15,104 +14,91 @@ import {
   Utility,
 } from 'src/domain/structs';
 import { Environment } from 'src/domain/environment';
-
 import { Node } from './node';
-import { State, NodeID } from './structs';
+import { State, greedySortIntentions } from './utils';
 
 export class MonteCarloPlanner {
   public position: Position;
 
-  private _intention: Intention | null = null;
+  private _lastIntention: Intention | null = null;
 
-  private _moveIntention: Intention | null = null;
+  private _nextMoveIntention: Intention | null = null;
 
-  private _children: HashMap<NodeID, Node> = new HashMap();
+  private _nextIntentions: Intention[] = [];
 
-  private _state: State<[Parcel, number, NodeID | null]>;
+  private _children: Node[] = [];
+
+  private _state: State;
 
   private _visits: number = 0;
+
+  private _nextIteration?: NodeJS.Immediate;
 
   public constructor(position: Position, environment: Environment) {
     this.position = position;
 
     this._state = {
-      availableParcels: [],
+      availablePositions: [],
       pickedParcels: [],
-      arrivalTime: Date.now(),
+      arrivalTime: Instant.now(),
       environment,
     };
 
-    this._state.availableParcels = this.sort(environment.getFreeParcels());
+    this.setNextIntentions();
 
-    environment.onEnviromentChange(this.handleChanges.bind(this));
+    environment.onEnvironmentChange(this.onEnvironmentChanged.bind(this));
   }
 
-  private greedyValue(parcel: Parcel): number {
-    const distance = this._state.environment.distance(
-      this.position,
-      parcel.position
-    );
+  private setNextIntentions() {
+    this._state.availablePositions = this._state.environment.getParcelsPositions();
+    const intentions = this._state.availablePositions.map((p) => Intention.pickup(p));
 
-    const distanceToDelivery = this._state.environment.distance(
-      parcel.position,
-      this._state.environment.getClosestDeliveryPosition(parcel.position)
-    );
-
-    const { movementDuration } = Config.getInstance();
-    const timeToArrive = (distance + distanceToDelivery) * movementDuration;
-
-    return parcel.value.getValueByInstant(Date.now() + timeToArrive);
-  }
-
-  private sort(parcels: Parcel[]): [Parcel, number, NodeID | null][] {
-    const values: [Parcel, number, NodeID | null][] = parcels.map((parcel) => [
-      parcel,
-      this.greedyValue(parcel),
-      null,
-    ]);
-
-    return values.sort((a, b) => b[1] - a[1]);
-  }
-
-  private setMoveIntention() {
-    if (this._moveIntention !== null) {
-      return;
+    if (this._lastIntention !== null && this._lastIntention.type !== IntentionType.PUTDOWN) {
+      const deliveryPosition = this._state.environment.getClosestDeliveryPosition(this.position);
+      intentions.push(Intention.putdown(deliveryPosition));
     }
 
-    const promisingPositions = this._state.environment.getPromisingPositions(
-      this.position
+    this._nextIntentions = greedySortIntentions(
+      intentions,
+      this._state.pickedParcels,
+      this.position,
+      this._state.arrivalTime,
+      this._state.environment
     );
+  }
 
+  private getBestMoveIntention(): Intention {
+    const promisingPositions = this._state.environment.getPromisingPositions(this.position);
+
+    let intention: Intention | null = null;
     let bestReward = Number.NEGATIVE_INFINITY;
-    const now = Date.now();
-    for (const [position, value] of promisingPositions) {
-      const totalDistance =
-        this._state.environment.distance(this.position, position) +
-        this._state.environment.distance(
-          position,
-          this._state.environment.getClosestDeliveryPosition(position)
-        );
+    const now = Instant.now();
 
-      const totalTime = totalDistance * Config.getInstance().movementDuration;
-      const reward = new DecayingValue(value, now).getValueByInstant(
-        now + totalTime
-      );
+    for (const [movePosition, value] of promisingPositions) {
+      const deliveryPosition = this._state.environment.getClosestDeliveryPosition(movePosition);
+      const totalDistance =
+        this._state.environment.distance(this.position, movePosition) +
+        this._state.environment.distance(movePosition, deliveryPosition);
+
+      const { movementDuration } = Config.getInstance();
+      const totalTime = movementDuration.multiply(totalDistance);
+      const reward = new DecayingValue(value, now).getValueByInstant(now.add(totalTime));
+
       if (reward > bestReward) {
-        this._moveIntention = Intention.move(position);
+        intention = Intention.move(movePosition);
         bestReward = reward;
       }
     }
+
+    if (intention === null) {
+      throw new Error('No best move intention found');
+    }
+
+    return intention;
   }
 
   private isFullyExpanded(): boolean {
-    if (
-      this._intention === null ||
-      this._intention.type === IntentionType.PUTDOWN
-    ) {
-      return this._children.size === this._state.availableParcels.length;
-    }
-
-    return this._children.size === this._state.availableParcels.length + 1;
+    return this._children.length === this._nextIntentions.length;
   }
 
   private selectChild(): Node {
@@ -120,72 +106,75 @@ export class MonteCarloPlanner {
       return this.expand();
     }
 
-    return this.getBestChild(Math.sqrt(2));
+    return this.getBestChild();
   }
 
   private expand(): Node {
-    const idx = this._state.availableParcels.findIndex((p) => p[2] === null);
-    const { movementDuration } = Config.getInstance();
+    const idx = this._children.length;
+    const intention = this._nextIntentions[idx];
 
-    const parcel = this._state.availableParcels[idx][0];
-    const intention = Intention.pickup(parcel.position);
-
-    const timeToArrive =
-      this._state.environment.distance(this.position, parcel.position) *
-      movementDuration;
-
-    const parcels = this._state.availableParcels
-      .filter((_, i) => i !== idx)
-      .map((p) => p[0]);
-
+    let availablePositions: Position[];
     let pickedParcels: Parcel[];
-    if (
-      this._intention !== null &&
-      this._intention.type === IntentionType.PUTDOWN
-    ) {
-      pickedParcels = [parcel];
+    if (intention.type === IntentionType.PUTDOWN) {
+      availablePositions = this._state.availablePositions;
+      pickedParcels = this._state.pickedParcels;
     } else {
-      pickedParcels = [...this._state.pickedParcels, parcel];
+      availablePositions = this._state.availablePositions.filter(
+        (position) => !position.equals(intention.position)
+      );
+
+      pickedParcels = [
+        ...this._state.pickedParcels,
+        ...this._state.environment.getParcelsByPosition(this.position),
+      ];
     }
 
+    const distance = this._state.environment.distance(this.position, intention.position);
+    const { movementDuration } = Config.getInstance();
+    const arrivalTime = this._state.arrivalTime.add(movementDuration.multiply(distance));
+
     const state = {
-      availableParcels: parcels,
+      availablePositions,
       pickedParcels,
-      arrivalTime: Date.now() + timeToArrive,
+      arrivalTime,
       environment: this._state.environment,
     };
 
     const node = new Node(state, intention, null);
-    const nodeID = NodeID.new();
-
-    this._state.availableParcels[idx][2] = nodeID;
-    this._children.set(nodeID, node);
+    this._children.push(node);
 
     return node;
   }
 
-  private getBestChild(explorationParameter: number): Node {
-    const now = Date.now();
-    let upperBound = 1e-5;
-    for (const [parcel] of this._state.availableParcels) {
-      upperBound += parcel.value.getValueByInstant(now);
+  private getBestChild(explorationParameter: number = Math.sqrt(2)): Node {
+    if (this._children.length === 0) {
+      throw new Error('No children');
+    } else if (this._children.length === 1) {
+      return this._children[0];
+    }
+
+    const now = Instant.now();
+    let upperBound = Number.EPSILON;
+    for (const intention of this._nextIntentions) {
+      if (intention.type === IntentionType.PUTDOWN) {
+        continue;
+      }
+
+      for (const parcel of this._state.environment.getParcelsByPosition(intention.position)) {
+        upperBound += parcel.value.getValueByInstant(now);
+      }
     }
 
     let bestChild = null;
     let bestScore = Number.NEGATIVE_INFINITY;
 
     const { movementDuration } = Config.getInstance();
-    for (const child of this._children.values()) {
-      const distance = this._state.environment.distance(
-        this.position,
-        child.intention.position
-      );
-      const arrivalTime = now + distance * movementDuration;
 
-      const exploitation =
-        child.utility.getValueByInstant(arrivalTime) /
-        child.visits /
-        upperBound;
+    for (const child of this._children.values()) {
+      const distance = this._state.environment.distance(this.position, child.intention.position);
+      const arrivalTime = now.add(movementDuration.multiply(distance));
+
+      const exploitation = child.utility.getValueByInstant(arrivalTime) / child.visits / upperBound;
       const exploration = Math.sqrt(Math.log(this._visits) / child.visits);
       const score = exploitation + explorationParameter * exploration;
 
@@ -196,19 +185,16 @@ export class MonteCarloPlanner {
     }
 
     if (bestChild === null) {
-      throw new Error('No children');
+      throw new Error('Best child not found');
     }
 
     return bestChild;
   }
 
   public run(): void {
-    if (
-      this._state.availableParcels.length === 0 &&
-      (this._intention === null ||
-        this._intention.type === IntentionType.PUTDOWN)
-    ) {
-      this.setMoveIntention();
+    if (this._nextIntentions.length === 0) {
+      this._nextMoveIntention = this.getBestMoveIntention();
+      this._nextIteration = undefined;
     } else {
       let node = this.selectChild();
       while (!node.isTerminal()) {
@@ -219,47 +205,60 @@ export class MonteCarloPlanner {
       node.backpropagate(utility);
       this._visits += 1;
 
-      setImmediate(this.run.bind(this));
+      this._nextIteration = setImmediate(this.run.bind(this));
     }
   }
 
-  public getBestIntention(
-    actual_distance: [Intention, number] | null
-  ): Intention | null {
-    if (this._moveIntention !== null) {
-      return this._moveIntention;
+  private getTree(children: Node[], startTime: Instant, position: Position): any {
+    const res: any = {};
+
+    for (const [idx, node] of children.entries()) {
+      const distance = this._state.environment.distance(position, node.intention.position);
+      const { movementDuration } = Config.getInstance();
+      const arrivalTime = startTime.add(movementDuration.multiply(distance));
+
+      res[`child_${idx}`] = {
+        intention: node.intention,
+        visits: node.visits,
+        score: node.utility.getValueByInstant(arrivalTime) / node.visits,
+        ...this.getTree(node.children, arrivalTime, node.intention.position),
+      };
     }
 
-    // console.log('Children:');
+    return res;
+  }
+
+  public getBestIntention(actual_distance: [Intention, number] | null): Intention {
+    if (this._nextMoveIntention !== null) {
+      return this._nextMoveIntention;
+    }
+
+    if (this._children.length === 0) {
+      clearImmediate(this._nextIteration);
+      this._nextIteration = undefined;
+      this.run();
+
+      if (this._children.length === 0) {
+        return this._nextMoveIntention!;
+      }
+
+      return this._children[0].intention;
+    }
 
     let bestIntention: Intention | null = null;
     let bestScore = Number.NEGATIVE_INFINITY;
-    // let bestChild: Node | null = null;
 
-    const now = Date.now();
+    const now = Instant.now();
     const { movementDuration } = Config.getInstance();
     for (const child of this._children.values()) {
       let distance: number;
-      if (
-        actual_distance !== null &&
-        actual_distance[0].equals(child.intention)
-      ) {
+      if (actual_distance !== null && actual_distance[0].equals(child.intention)) {
         [, distance] = actual_distance;
       } else {
-        distance = this._state.environment.distance(
-          this.position,
-          child.intention.position
-        );
+        distance = this._state.environment.distance(this.position, child.intention.position);
       }
-      const arrivalTime = now + distance * movementDuration;
+      const arrivalTime = now.add(movementDuration.multiply(distance));
       let score = child.utility.getValueByInstant(arrivalTime) / child.visits;
-
-      // const obj = {
-      //   score,
-      //   visits: child.visits,
-      //   intention: child.intention,
-      // };
-      // console.log(obj);
 
       if (child.intention.type === IntentionType.PICKUP) {
         let minEnemysDistance = Number.POSITIVE_INFINITY;
@@ -287,75 +286,46 @@ export class MonteCarloPlanner {
       if (score > bestScore) {
         bestIntention = child.intention;
         bestScore = score;
-        // bestChild = child;
       }
     }
 
-    // if (bestChild !== null) {
-    //   console.log(bestChild.utility);
-    // }
+    // console.log(treeify.asTree(this.getTree(this._children, now, this.position), true, false));
 
-    return bestIntention;
+    return bestIntention!;
   }
 
-  public handleChanges(changes: EnviromentChange): void {
-    for (const child of this._children.values()) {
-      child.handleChanges(changes);
-    }
+  public onEnvironmentChanged(): void {
+    this._children.splice(0, this._children.length);
+    this.setNextIntentions();
 
-    for (const parcel of changes.noLongerFreeParcels) {
-      const index = this._state.availableParcels.findIndex((p) =>
-        p[0].id.equals(parcel.id)
-      );
-
-      if (index !== -1) {
-        const rem = this._state.availableParcels.splice(index, 1)[0];
-        if (rem[2] !== null) {
-          this._children.delete(rem[2]!);
-        }
-      }
-    }
-
-    if (changes.newFreeParcels.length > 0) {
-      this._state.availableParcels = utils.merge(
-        this._state.availableParcels,
-        this.sort(changes.newFreeParcels),
-        (a, b) => b[1] - a[1]
-      );
-
-      if (
-        this._state.availableParcels.length === changes.newFreeParcels.length
-      ) {
-        this._moveIntention = null;
-        this.run();
-      }
-    }
+    this._nextMoveIntention = null;
+    clearImmediate(this._nextIteration);
+    this._nextIteration = undefined;
+    this.run();
   }
 
   public performedIntention(intention: Intention) {
-    if (this._moveIntention !== null && intention.equals(this._moveIntention)) {
-      this._moveIntention = null;
-      this.setMoveIntention();
+    if (this._nextMoveIntention !== null && intention.equals(this._nextMoveIntention)) {
+      this._nextMoveIntention = this.getBestMoveIntention();
       return;
     }
 
-    const children = [...this._children.values()];
-    const performedChild = children.find((child) =>
-      child.intention.equals(intention)
-    );
+    const idx = this._nextIntentions.findIndex((i) => i.equals(intention));
+    const child = this._children[idx];
 
-    if (performedChild === undefined) {
+    if (child === undefined) {
       throw new Error('Intention not found');
     }
 
-    this._children = performedChild.children;
-    this._intention = performedChild.intention;
-    this._state = performedChild.state;
+    this._nextIntentions = child.nextIntentions;
+    this._children = child.children;
+    this._lastIntention = child.intention;
+    this._state = child.state;
     this.position = intention.position;
-    this._visits = performedChild.visits;
+    this._visits = child.visits;
 
-    for (const child of this._children.values()) {
-      child.parent = null;
+    for (const c of this._children) {
+      c.parent = null;
     }
   }
 }

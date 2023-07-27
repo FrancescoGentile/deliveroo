@@ -41,6 +41,14 @@ export class Duration {
     return this._value;
   }
 
+  public add(other: Duration): Duration {
+    return new Duration(this._value + other._value);
+  }
+
+  public multiply(factor: number): Duration {
+    return new Duration(this._value * factor);
+  }
+
   public equals(other: Duration): boolean {
     return this._value === other._value;
   }

@@ -6,13 +6,7 @@ import winston, { createLogger, Logger } from 'winston';
 
 import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
-import { sleep } from 'src/utils';
-import {
-  Direction,
-  Intention,
-  IntentionType,
-  Position,
-} from 'src/domain/structs';
+import { Direction, Intention, IntentionType, Position } from 'src/domain/structs';
 import { MonteCarloPlanner } from './planner';
 // import { PDDLPlanner } from './pddlPlanner';
 
@@ -27,11 +21,7 @@ export class Player {
 
   // private readonly _pddlPlanner: PDDLPlanner;
 
-  public constructor(
-    position: Position,
-    environment: Environment,
-    actuators: Actuators
-  ) {
+  public constructor(position: Position, environment: Environment, actuators: Actuators) {
     this._logger = createLogger({
       level: 'debug',
       format: winston.format.combine(
@@ -64,17 +54,9 @@ export class Player {
         }
       }
 
-      // console.log(
-      //   '-----------------------------------------------------------------------'
-      // );
       const intention = this._planner.getBestIntention(actual_distance);
-      // console.log(this._planner.position, intention);
-      // console.log('\n\n');
 
-      if (intention === null) {
-        // eslint-disable-next-line no-await-in-loop
-        await sleep(100);
-      } else if (this._planner.position.equals(intention.position)) {
+      if (this._planner.position.equals(intention.position)) {
         switch (intention.type) {
           case IntentionType.PICKUP:
             await this._actuators.pickup();
@@ -90,10 +72,7 @@ export class Player {
       } else {
         let direction: Direction;
         if (actual_path === null || !actual_path[0].equals(intention)) {
-          direction = this._environment.nextDirection(
-            this._planner.position,
-            intention.position
-          )!;
+          direction = this._environment.nextDirection(this._planner.position, intention.position)!;
           actual_path = null;
         } else {
           direction = actual_path[1].shift()!;
@@ -103,10 +82,7 @@ export class Player {
         if (success) {
           this._planner.position = this._planner.position.moveTo(direction);
         } else {
-          const path = this._environment.recomputePath(
-            this._planner.position,
-            intention.position
-          );
+          const path = this._environment.recomputePath(this._planner.position, intention.position);
 
           if (path === null) {
             actual_path = [intention, []];

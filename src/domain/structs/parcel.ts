@@ -2,7 +2,7 @@
 //
 //
 
-import { Hashable } from 'src/utils';
+import { Hashable, Instant } from 'src/utils';
 import { Config } from './config';
 import type { AgentID } from './agent';
 import { Position } from './location';
@@ -38,9 +38,9 @@ export class ParcelID implements Hashable {
 export class DecayingValue {
   private readonly _value: number;
 
-  private readonly _time: number;
+  private readonly _time: Instant;
 
-  public constructor(value: number, time: number = Date.now()) {
+  public constructor(value: number, time: Instant = Instant.now()) {
     this._value = value;
     this._time = time;
   }
@@ -50,30 +50,18 @@ export class DecayingValue {
    * @param instant The instance to compute the value at (in milliseconds). Defaults to the current time.
    * @returns The value.
    */
-  public getValueByInstant(instant: number = Date.now()): number {
-    const diff = instant - this._time;
+  public getValueByInstant(instant: Instant = Instant.now()): number {
+    const diff = instant.subtract(this._time);
     const decay = Config.getInstance().parcelDecayingInterval;
-    const value = this._value - diff / decay;
+    const value = this._value - diff.milliseconds / decay;
     return value < 0 ? 0 : value;
   }
 
-  /**
-   * Compute the difference between the value at the given instance of time and the value at the given instance of time plus the given delta.
-   * @param reference The instance to compute the value at (in milliseconds).
-   * @param delta The delta to add to the reference (in milliseconds).
-   * @returns The difference.
-   */
-  public getValueDiff(reference: number, delta: number): number {
-    const refValue = this.getValueByInstant(reference);
-    if (refValue <= 0) {
-      return 0;
-    }
+  public getValueDiff(start: Instant, end: Instant): number {
+    const first = this.getValueByInstant(start);
+    const second = this.getValueByInstant(end);
 
-    const delatValue = new DecayingValue(refValue, reference).getValueByInstant(
-      reference + delta
-    );
-
-    return refValue - delatValue;
+    return first - second;
   }
 
   public toString(): string {

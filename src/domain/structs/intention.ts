@@ -11,10 +11,7 @@ export enum IntentionType {
 }
 
 export class Intention {
-  public constructor(
-    public readonly type: IntentionType,
-    public readonly position: Position
-  ) {}
+  public constructor(public readonly type: IntentionType, public readonly position: Position) {}
 
   public static move(position: Position): Intention {
     return new Intention(IntentionType.MOVE, position);

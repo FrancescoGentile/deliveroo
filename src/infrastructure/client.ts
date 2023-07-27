@@ -17,7 +17,7 @@ import {
   Position,
   Tile,
 } from 'src/domain/structs';
-import { HashSet, Instant, sleep } from 'src/utils';
+import { Duration, HashSet, Instant, sleep } from 'src/utils';
 
 export class Client implements Actuators, Sensors {
   private readonly _socket: Socket;
@@ -53,13 +53,7 @@ export class Client implements Actuators, Sensors {
   private setMap(width: number, height: number, tiles: any[]) {
     this._gridSize = new GridSize(width, height);
     this._crossableTiles = tiles.map(
-      (tile) =>
-        new Tile(
-          new Position(tile.x, tile.y),
-          tile.delivery,
-          true,
-          tile.parcelSpawner
-        )
+      (tile) => new Tile(new Position(tile.x, tile.y), tile.delivery, true, tile.parcelSpawner)
     );
   }
 
@@ -119,7 +113,7 @@ export class Client implements Actuators, Sensors {
       parcelRewardVariance,
       parcelDecayingInterval,
       movementSteps,
-      movementDuration,
+      movementDuration: Duration.fromMilliseconds(movementDuration),
       parcelRadius,
       agentRadius,
       maxParcels,
@@ -175,13 +169,9 @@ export class Client implements Actuators, Sensors {
 
   public async move(direction: Direction): Promise<boolean> {
     return new Promise((resolve, _reject) => {
-      this._socket.emit(
-        'move',
-        direction,
-        (response: boolean | PromiseLike<boolean>) => {
-          resolve(response);
-        }
-      );
+      this._socket.emit('move', direction, (response: boolean | PromiseLike<boolean>) => {
+        resolve(response);
+      });
     });
   }
 
@@ -200,8 +190,7 @@ export class Client implements Actuators, Sensors {
 
   public async putdown(parcels: Parcel[] | null): Promise<HashSet<ParcelID>> {
     return new Promise((resolve, _reject) => {
-      const ids =
-        parcels !== null ? parcels.map((parcel) => parcel.id.toString()) : null;
+      const ids = parcels !== null ? parcels.map((parcel) => parcel.id.toString()) : null;
       this._socket.emit('putdown', ids, (response: any[]) => {
         const putDownParcels: HashSet<ParcelID> = new HashSet<ParcelID>();
         for (const parcel of response) {
@@ -213,11 +202,11 @@ export class Client implements Actuators, Sensors {
     });
   }
 
-  public onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void {
+  public onParcelSensing(callback: (parcels: Parcel[]) => void): void {
     this._socket.on('parcels sensing', (parcels) => {
-      const newParcels = new HashSet<Parcel>();
+      const newParcels = [];
       for (const parcel of parcels) {
-        newParcels.add(
+        newParcels.push(
           new Parcel(
             new ParcelID(parcel.id),
             new DecayingValue(parcel.reward),
@@ -227,7 +216,7 @@ export class Client implements Actuators, Sensors {
         );
       }
 
-      if (newParcels.size > 0) {
+      if (newParcels.length > 0) {
         callback(newParcels);
       }
     });

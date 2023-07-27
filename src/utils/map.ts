@@ -46,6 +46,12 @@ export class HashMap<K extends Hashable, V> {
     }
   }
 
+  public *keys(): IterableIterator<K> {
+    for (const [key] of this._map.values()) {
+      yield key;
+    }
+  }
+
   public forEach(callback: (value: V, key: K) => void): void {
     this._map.forEach(([key, value]) => callback(value, key));
   }

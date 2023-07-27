@@ -20,9 +20,7 @@ function computeDistances(adj: Matrix): Matrix {
   math.matrix(adj);
   const adjArray = adj.toArray() as number[][];
 
-  if (
-    adjArray.every((row, i) => row.every((_, j) => i === j || adjArray[i][j]))
-  ) {
+  if (adjArray.every((row, i) => row.every((_, j) => i === j || adjArray[i][j]))) {
     return adj;
   }
 

@@ -11,10 +11,7 @@ import { Direction } from './direction';
 // ---------------------------------------------------------------------------
 
 export class Position implements Hashable {
-  public constructor(
-    public readonly row: number,
-    public readonly column: number
-  ) {}
+  public constructor(public readonly row: number, public readonly column: number) {}
 
   public static fromIndex(index: number, size: GridSize): Position {
     const row = Math.floor(index / size.columns);
@@ -23,9 +20,7 @@ export class Position implements Hashable {
   }
 
   public manhattanDistance(other: Position): number {
-    return (
-      Math.abs(this.row - other.row) + Math.abs(this.column - other.column)
-    );
+    return Math.abs(this.row - other.row) + Math.abs(this.column - other.column);
   }
 
   public moveTo(direction: Direction): Position {
@@ -64,12 +59,7 @@ export class Position implements Hashable {
   }
 
   public isValid(size: GridSize): boolean {
-    return (
-      this.row >= 0 &&
-      this.row < size.rows &&
-      this.column >= 0 &&
-      this.column < size.columns
-    );
+    return this.row >= 0 && this.row < size.rows && this.column >= 0 && this.column < size.columns;
   }
 
   public equals(other: Position): boolean {

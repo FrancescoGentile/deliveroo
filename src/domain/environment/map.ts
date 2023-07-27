@@ -21,10 +21,7 @@ export interface Map {
   tileWeights: number[]; // length: N
 }
 
-export async function buildMap(
-  size: GridSize,
-  crossableTiles: Tile[]
-): Promise<Map> {
+export async function buildMap(size: GridSize, crossableTiles: Tile[]): Promise<Map> {
   const deliveryPositions: Position[] = [];
 
   const crossableIndexes = new HashMap<Position, number>();
@@ -46,9 +43,7 @@ export async function buildMap(
     maxWorkers: 1,
   });
 
-  const distancesArray = await pool.exec('createPairsDistanceMatrix', [
-    adj.toArray(),
-  ]);
+  const distancesArray = await pool.exec('createPairsDistanceMatrix', [adj.toArray()]);
   pool.terminate();
   const distances = math.matrix(distancesArray);
 
@@ -86,10 +81,7 @@ export async function buildMap(
   };
 }
 
-function createAdjacencyMatrix(
-  size: GridSize,
-  indexes: HashMap<Position, number>
-): Matrix {
+function createAdjacencyMatrix(size: GridSize, indexes: HashMap<Position, number>): Matrix {
   const adj = math.zeros(indexes.size, indexes.size) as Matrix;
 
   for (const [position, idx] of indexes.entries()) {
@@ -127,10 +119,7 @@ function getTileWeights(
           continue;
         }
 
-        const pos = new Position(
-          tile.position.row + i,
-          tile.position.column + j
-        );
+        const pos = new Position(tile.position.row + i, tile.position.column + j);
         if (!pos.isValid(size)) {
           // eslint-disable-next-line no-continue
           continue;

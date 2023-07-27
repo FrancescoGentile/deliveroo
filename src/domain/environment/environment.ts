@@ -12,9 +12,7 @@ import {
   AgentID,
   Config,
   Direction,
-  EnviromentChange,
   Parcel,
-  ParcelID,
   Position,
   Tile,
   PDDLProblem,
@@ -24,7 +22,8 @@ import { Map, buildMap } from './map';
 import { kmax } from './utils';
 
 interface State {
-  freeParcels: HashMap<ParcelID, Parcel>;
+  freeParcels: HashSet<Parcel>;
+  positionToParcels: HashMap<Position, Parcel[]>;
   agents: HashMap<AgentID, Agent>;
   visibleAgents: Agent[];
   numSmartAgents: number;
@@ -33,14 +32,11 @@ interface State {
 export class Environment {
   private _map!: Map;
 
-  private _parcelRadius: number = 0;
-
-  private _position: Position = new Position(0, 0);
-
   private _id: AgentID = new AgentID('-1');
 
   private readonly _state: State = {
-    freeParcels: new HashMap(),
+    freeParcels: new HashSet(),
+    positionToParcels: new HashMap(),
     agents: new HashMap(),
     visibleAgents: [],
     numSmartAgents: 1, // the main player is always smart
@@ -51,9 +47,6 @@ export class Environment {
   public static async new(sensors: Sensors): Promise<Environment> {
     const env = new Environment();
     sensors.onParcelSensing((parcels) => env.onParcelSensing(parcels));
-    sensors.onPositionUpdate((position) => {
-      env._position = position;
-    });
 
     setInterval(() => env.removeDeadParcels(), 10000);
 
@@ -64,7 +57,6 @@ export class Environment {
       sensors.getID(),
     ]);
     Config.configure(config);
-    env._parcelRadius = config.parcelRadius;
     env._id = id;
 
     sensors.onAgentSensing((agents) => env.onAgentSensing(agents));
@@ -75,54 +67,66 @@ export class Environment {
     return env;
   }
 
-  private onParcelSensing(parcels: HashSet<Parcel>) {
-    const change: EnviromentChange = {
-      newFreeParcels: [],
-      noLongerFreeParcels: [],
-    };
+  private removeParcel(parcel: Parcel) {
+    this._state.freeParcels.delete(parcel);
+    const parcelsInPosition = this._state.positionToParcels.get(parcel.position);
+    if (parcelsInPosition !== undefined) {
+      const idx = parcelsInPosition.findIndex((p) => p.id.equals(parcel.id));
+      if (idx !== -1) {
+        parcelsInPosition.splice(idx, 1);
+      }
 
-    for (const parcel of this._state.freeParcels.values()) {
-      if (
-        !parcels.has(parcel) &&
-        this._position.manhattanDistance(parcel.position) <= this._parcelRadius
-      ) {
-        this._state.freeParcels.delete(parcel.id);
-        change.noLongerFreeParcels.push(parcel);
+      if (parcelsInPosition.length === 0) {
+        this._state.positionToParcels.delete(parcel.position);
       }
     }
+  }
 
-    for (const parcel of parcels.values()) {
+  private onParcelSensing(visibleParcels: Parcel[]) {
+    let isChanged = false;
+
+    for (const parcel of visibleParcels) {
       if (parcel.agentID === null) {
-        if (this._state.freeParcels.has(parcel.id)) {
-          // the parcel is still free
-          this._state.freeParcels.set(parcel.id, parcel);
+        // the parcel is free
+        if (this._state.freeParcels.has(parcel)) {
+          // the parcel was already free
+          const parcelsInPosition = this._state.positionToParcels.get(parcel.position) || [];
+          const idx = parcelsInPosition.findIndex((p) => p.id.equals(parcel.id));
+
+          if (idx === -1) {
+            // the parcel has changed position
+            parcelsInPosition.push(parcel);
+            this._state.positionToParcels.set(parcel.position, parcelsInPosition);
+            isChanged = true;
+          }
         } else {
           // the parcel is new
-          this._state.freeParcels.set(parcel.id, parcel);
-          change.newFreeParcels.push(parcel);
+          this._state.freeParcels.add(parcel);
+          const parcelsInPosition = this._state.positionToParcels.get(parcel.position) || [];
+          parcelsInPosition.push(parcel);
+          this._state.positionToParcels.set(parcel.position, parcelsInPosition);
+
+          isChanged = true;
         }
-      } else if (
-        this._state.freeParcels.has(parcel.id) &&
-        !parcel.agentID.equals(this._id) // we do not care about the parcels carried by us
-      ) {
+      } else if (this._state.freeParcels.has(parcel)) {
         // the parcel was free and is now carried
-        this._state.freeParcels.delete(parcel.id);
-        change.noLongerFreeParcels.push(parcel);
+        this.removeParcel(parcel);
+        if (!parcel.agentID.equals(this._id)) {
+          // the parcel is not carried by the main player
+          isChanged = true;
+        }
       }
     }
 
-    if (
-      change.newFreeParcels.length > 0 ||
-      change.noLongerFreeParcels.length > 0
-    ) {
-      this._broker.emit('change', change);
+    if (isChanged) {
+      this._broker.emit('change');
     }
   }
 
   private removeDeadParcels() {
-    for (const [id, parcel] of this._state.freeParcels.entries()) {
+    for (const parcel of this._state.freeParcels.values()) {
       if (parcel.value.getValueByInstant() === 0) {
-        this._state.freeParcels.delete(id);
+        this.removeParcel(parcel);
       }
     }
   }
@@ -139,10 +143,9 @@ export class Environment {
         const oldAgent = this._state.agents.get(agent.id)!;
         const visitedTiles =
           now.subtract(oldAgent.firstSeen).milliseconds /
-          Config.getInstance().movementDuration;
+          Config.getInstance().movementDuration.milliseconds;
         const avgScore =
-          ((visitedTiles / avgParcelsDistance) *
-            Config.getInstance().parcelRewardAverage) /
+          ((visitedTiles / avgParcelsDistance) * Config.getInstance().parcelRewardAverage) /
           this._state.numSmartAgents;
 
         let random = false;
@@ -168,12 +171,16 @@ export class Environment {
     }
   }
 
-  public onEnviromentChange(callback: (change: EnviromentChange) => void) {
+  public onEnvironmentChange(callback: () => void) {
     this._broker.on('change', callback);
   }
 
-  public getFreeParcels(): Parcel[] {
-    return [...this._state.freeParcels.values()];
+  public getParcelsPositions(): Position[] {
+    return [...this._state.positionToParcels.keys()];
+  }
+
+  public getParcelsByPosition(position: Position): Parcel[] {
+    return this._state.positionToParcels.get(position) || [];
   }
 
   public getPromisingPositions(playerPosition: Position): [Position, number][] {
@@ -209,10 +216,7 @@ export class Environment {
 
     const [values, indexes] = kmax(weights, k);
 
-    return values.map((value, idx) => [
-      this._map.crossableTiles[indexes[idx]].position,
-      value,
-    ]);
+    return values.map((value, idx) => [this._map.crossableTiles[indexes[idx]].position, value]);
   }
 
   public getTileByPosition(position: Position): Tile {
@@ -349,9 +353,9 @@ export class Environment {
     for (const tile of this._map.crossableTiles) {
       for (const neighbour of tile.position.neigbours(this._map.size)) {
         neigbours.push(
-          `(${this.nextDirection(tile.position, neighbour)} t_${
-            tile.position.row
-          }_${tile.position.column} t_${neighbour.row}_${neighbour.column})`
+          `(${this.nextDirection(tile.position, neighbour)} t_${tile.position.row}_${
+            tile.position.column
+          } t_${neighbour.row}_${neighbour.column})`
         );
       }
     }
