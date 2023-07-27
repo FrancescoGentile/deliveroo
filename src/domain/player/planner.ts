@@ -111,25 +111,28 @@ export class MonteCarloPlanner {
 
   private expand(): Node {
     const idx = this._children.length;
-    const intention = this._nextIntentions[idx];
+    const nextIntention = this._nextIntentions[idx];
 
     let availablePositions: Position[];
     let pickedParcels: Parcel[];
-    if (intention.type === IntentionType.PUTDOWN) {
+
+    if (nextIntention.type === IntentionType.PUTDOWN) {
       availablePositions = this._state.availablePositions;
       pickedParcels = this._state.pickedParcels;
     } else {
       availablePositions = this._state.availablePositions.filter(
-        (position) => !position.equals(intention.position)
+        (position) => !position.equals(nextIntention.position)
       );
 
-      pickedParcels = [
-        ...this._state.pickedParcels,
-        ...this._state.environment.getParcelsByPosition(this.position),
-      ];
+      if (this._lastIntention === null || this._lastIntention.type === IntentionType.PUTDOWN) {
+        pickedParcels = [];
+      } else {
+        pickedParcels = [...this._state.pickedParcels];
+      }
+      pickedParcels.push(...this._state.environment.getParcelsByPosition(nextIntention.position));
     }
 
-    const distance = this._state.environment.distance(this.position, intention.position);
+    const distance = this._state.environment.distance(this.position, nextIntention.position);
     const { movementDuration } = Config.getInstance();
     const arrivalTime = this._state.arrivalTime.add(movementDuration.multiply(distance));
 
@@ -140,7 +143,7 @@ export class MonteCarloPlanner {
       environment: this._state.environment,
     };
 
-    const node = new Node(state, intention, null);
+    const node = new Node(state, nextIntention, null);
     this._children.push(node);
 
     return node;
@@ -155,6 +158,11 @@ export class MonteCarloPlanner {
 
     const now = Instant.now();
     let upperBound = Number.EPSILON;
+
+    for (const parcel of this._state.pickedParcels) {
+      upperBound += parcel.value.getValueByInstant(now);
+    }
+
     for (const intention of this._nextIntentions) {
       if (intention.type === IntentionType.PUTDOWN) {
         continue;
@@ -290,6 +298,7 @@ export class MonteCarloPlanner {
     }
 
     // console.log(treeify.asTree(this.getTree(this._children, now, this.position), true, false));
+    // console.log("----------------------------------")
 
     return bestIntention!;
   }
@@ -305,8 +314,8 @@ export class MonteCarloPlanner {
   }
 
   public performedIntention(intention: Intention) {
-    if (this._nextMoveIntention !== null && intention.equals(this._nextMoveIntention)) {
-      this._nextMoveIntention = this.getBestMoveIntention();
+    if (intention.type === IntentionType.MOVE) {
+      this._nextMoveIntention = null;
       return;
     }
 

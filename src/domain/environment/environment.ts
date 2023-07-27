@@ -59,10 +59,10 @@ export class Environment {
     Config.configure(config);
     env._id = id;
 
-    sensors.onAgentSensing((agents) => env.onAgentSensing(agents));
-
     const map = await buildMap(size, tiles);
     env._map = map;
+
+    sensors.onAgentSensing((agents) => env.onAgentSensing(agents));
 
     return env;
   }
