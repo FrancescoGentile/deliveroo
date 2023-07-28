@@ -10,7 +10,9 @@
     "start": "node --experimental-loader=extensionless dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "pre-commit": "lint-staged",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "lint:check": "eslint \"src/**/*.{ts,js,tsx,jsx,json}\" --max-warnings=0",
+    "format:check": "prettier --check \"src/**/*.{ts,js,tsx,jsx,json}\""
   },
   "keywords": [],
   "contributors": [

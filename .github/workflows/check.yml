@@ -1,0 +1,20 @@
+name: Formatting and Linting
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v3.7.0
+        with:
+          node-version: '>=18.x'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2.4.0
+        with:
+          run_install: true
+      - name: Check formatting
+        run: pnpm run format:check
+      - name: Check linting
+        run: pnpm run lint:check
