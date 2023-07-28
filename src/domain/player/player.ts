@@ -4,6 +4,7 @@
 
 import winston, { createLogger, Logger } from 'winston';
 
+import { HashMap } from 'src/utils';
 import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
 import { Direction, Intention, IntentionType, Position } from 'src/domain/structs';
@@ -42,21 +43,25 @@ export class Player {
   }
 
   public async run() {
-    let actual_path: [Intention, Direction[]] | null = null;
+    const actualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
+    let blockedPositions: HashMap<Position, Intention[]> = new HashMap();
+
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      let actual_distance: [Intention, number] | null = null;
-      if (actual_path !== null) {
-        if (actual_path[1].length === 0) {
-          actual_distance = [actual_path[0], Infinity];
-        } else {
-          actual_distance = [actual_path[0], actual_path[1].length];
+      const tmp = new HashMap<Position, Intention[]>();
+      for (const agent of this._environment.getVisibleAgents()) {
+        const blockedIntentions = blockedPositions.get(agent.currentPosition);
+        if (blockedIntentions !== undefined) {
+          tmp.set(agent.currentPosition, blockedIntentions);
         }
       }
+      blockedPositions = tmp;
 
-      const intention = this._planner.getBestIntention(actual_distance);
+      const intention = this._planner.getBestIntention(actualPaths);
+      // console.log(intention);
 
       if (this._planner.position.equals(intention.position)) {
+        // console.log('performing intention');
         switch (intention.type) {
           case IntentionType.PICKUP:
             await this._actuators.pickup();
@@ -71,11 +76,10 @@ export class Player {
         this._planner.performedIntention(intention);
       } else {
         let direction: Direction;
-        if (actual_path === null || !actual_path[0].equals(intention)) {
-          direction = this._environment.nextDirection(this._planner.position, intention.position)!;
-          actual_path = null;
+        if (actualPaths.has(intention)) {
+          direction = actualPaths.get(intention)!.shift()!;
         } else {
-          direction = actual_path[1].shift()!;
+          direction = this._environment.nextDirection(this._planner.position, intention.position)!;
         }
 
         const success = await this._actuators.move(direction);
@@ -83,12 +87,11 @@ export class Player {
           this._planner.position = this._planner.position.moveTo(direction);
         } else {
           const path = this._environment.recomputePath(this._planner.position, intention.position);
+          actualPaths.set(intention, path);
 
-          if (path === null) {
-            actual_path = [intention, []];
-          } else {
-            actual_path = [intention, path];
-          }
+          const blockedPosition = blockedPositions.get(intention.position) ?? [];
+          blockedPosition.push(intention);
+          blockedPositions.set(intention.position, blockedPosition);
         }
       }
     }

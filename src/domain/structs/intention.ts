@@ -2,6 +2,7 @@
 //
 //
 
+import { Hashable } from 'src/utils';
 import { Position } from './location';
 
 export enum IntentionType {
@@ -10,7 +11,7 @@ export enum IntentionType {
   PICKUP = 'pickup',
 }
 
-export class Intention {
+export class Intention implements Hashable {
   public constructor(public readonly type: IntentionType, public readonly position: Position) {}
 
   public static move(position: Position): Intention {
@@ -27,6 +28,10 @@ export class Intention {
 
   public equals(other: Intention): boolean {
     return this.type === other.type && this.position.equals(other.position);
+  }
+
+  public hash(): string {
+    return `${this.type}-${this.position.hash()}`;
   }
 
   public toString(): string {

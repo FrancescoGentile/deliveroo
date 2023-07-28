@@ -3,10 +3,11 @@
 //
 
 // import treeify from 'treeify';
-import { Instant } from 'src/utils';
+import { HashMap, Instant } from 'src/utils';
 import {
   Config,
   DecayingValue,
+  Direction,
   Intention,
   IntentionType,
   Parcel,
@@ -236,7 +237,7 @@ export class MonteCarloPlanner {
     return res;
   }
 
-  public getBestIntention(actual_distance: [Intention, number] | null): Intention {
+  public getBestIntention(actualPaths: HashMap<Intention, Direction[] | null>): Intention {
     if (this._nextMoveIntention !== null) {
       return this._nextMoveIntention;
     }
@@ -260,11 +261,17 @@ export class MonteCarloPlanner {
     const { movementDuration } = Config.getInstance();
     for (const child of this._children.values()) {
       let distance: number;
-      if (actual_distance !== null && actual_distance[0].equals(child.intention)) {
-        [, distance] = actual_distance;
+      if (actualPaths.has(child.intention)) {
+        const path = actualPaths.get(child.intention);
+        if (path === null || path === undefined) {
+          distance = Number.POSITIVE_INFINITY;
+        } else {
+          distance = path.length;
+        }
       } else {
         distance = this._state.environment.distance(this.position, child.intention.position);
       }
+
       const arrivalTime = now.add(movementDuration.multiply(distance));
       let score = child.utility.getValueByInstant(arrivalTime) / child.visits;
 
@@ -303,9 +310,8 @@ export class MonteCarloPlanner {
         this._nextIteration = undefined;
         this._nextMoveIntention = this.getBestMoveIntention();
         return this._nextMoveIntention;
-      } 
-        return this.getBestMoveIntention();
-      
+      }
+      return this.getBestMoveIntention();
     }
 
     // console.log(treeify.asTree(this.getTree(this._children, now, this.position), true, false));

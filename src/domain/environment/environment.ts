@@ -206,7 +206,7 @@ export class Environment {
   }
 
   public getParcelsByPosition(position: Position): Parcel[] {
-    return this._state.positionToParcels.get(position) || [];
+    return this._state.positionToParcels.get(position) ?? [];
   }
 
   public getPromisingPositions(playerPosition: Position): [Position, number][] {
