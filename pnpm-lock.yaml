@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 dependencies:
+  '@datastructures-js/priority-queue':
+    specifier: ^6.3.0
+    version: 6.3.0
   dotenv:
     specifier: ^16.0.3
     version: 16.0.3
@@ -23,9 +26,6 @@ dependencies:
   treeify:
     specifier: ^1.1.0
     version: 1.1.0
-  ts-priority-queue:
-    specifier: ^0.1.1
-    version: 0.1.1
   winston:
     specifier: ^3.8.2
     version: 3.8.2
@@ -1354,6 +1354,16 @@ packages:
       colorspace: 1.1.4
       enabled: 2.0.0
       kuler: 2.0.0
+    dev: false
+
+  /@datastructures-js/heap@4.3.2:
+    resolution: {integrity: sha512-7/9QSsIZ+wMG3C9++mz9iOjdtTp9C036PISHvNjG3eyFO8nXOBJQFKgeV7M6/+EPl+oXXFRGBb8Ue60LsqTqGw==}
+    dev: false
+
+  /@datastructures-js/priority-queue@6.3.0:
+    resolution: {integrity: sha512-bJkryPys8zVYMCSjyBPYzJlw5V2kMeOYzGHRBXiGkwqTv8vZ/Ux5RO736T8Y6l3cH+ocbQV9UxlsFwA9qI4VhA==}
+    dependencies:
+      '@datastructures-js/heap': 4.3.2
     dev: false
 
   /@eslint-community/eslint-utils@4.4.0(eslint@8.36.0):
@@ -4011,10 +4021,6 @@ packages:
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
     dev: true
-
-  /ts-priority-queue@0.1.1:
-    resolution: {integrity: sha512-jNwbk4ItfTHVopnlQ/Z7UUlbF1TNsdXS2cb1W8kI6lm8UauIjs8CYSOEh1E/yrIEhl+HVFUMp60ma6fKuvBhBQ==}
-    dev: false
 
   /tsconfig-paths@3.14.2:
     resolution: {integrity: sha512-o/9iXgCYc5L/JxCHPe3Hvh8Q/2xm5Z+p18PESBU6Ff33695QnCHBEjcytY2q19ua7Mbl/DavtBOLq+oG0RCL+g==}

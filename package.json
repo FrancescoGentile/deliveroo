@@ -49,13 +49,13 @@
     "typescript": "^5.0.2"
   },
   "dependencies": {
+    "@datastructures-js/priority-queue": "^6.3.0",
     "dotenv": "^16.0.3",
     "eventemitter3": "^5.0.0",
     "extensionless": "^1.4.5",
     "mathjs": "^11.8.0",
     "socket.io-client": "^4.6.1",
     "treeify": "^1.1.0",
-    "ts-priority-queue": "^0.1.1",
     "winston": "^3.8.2",
     "workerpool": "^6.4.0"
   },

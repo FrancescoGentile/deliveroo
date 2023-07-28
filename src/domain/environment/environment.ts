@@ -4,7 +4,7 @@
 
 import EventEmitter from 'eventemitter3';
 import * as math from 'mathjs';
-import PriorityQueue from 'ts-priority-queue';
+import { MinPriorityQueue } from '@datastructures-js/priority-queue';
 
 import { HashMap, HashSet, Instant } from 'src/utils';
 import {
@@ -16,13 +16,14 @@ import {
   Position,
   Tile,
   PDDLProblem,
+  ParcelID,
 } from 'src/domain/structs';
 import { Sensors } from 'src/domain/ports';
 import { Map, buildMap } from './map';
 import { kmax } from './utils';
 
 interface State {
-  freeParcels: HashSet<Parcel>;
+  freeParcels: HashMap<ParcelID, Parcel>;
   positionToParcels: HashMap<Position, Parcel[]>;
   agents: HashMap<AgentID, Agent>;
   visibleAgents: Agent[];
@@ -32,10 +33,14 @@ interface State {
 export class Environment {
   private _map!: Map;
 
-  private _id: AgentID = new AgentID('-1');
+  private _parcelRadius?: number;
+
+  private _position?: Position;
+
+  private _id?: AgentID;
 
   private readonly _state: State = {
-    freeParcels: new HashSet(),
+    freeParcels: new HashMap(),
     positionToParcels: new HashMap(),
     agents: new HashMap(),
     visibleAgents: [],
@@ -47,6 +52,9 @@ export class Environment {
   public static async new(sensors: Sensors): Promise<Environment> {
     const env = new Environment();
     sensors.onParcelSensing((parcels) => env.onParcelSensing(parcels));
+    sensors.onPositionUpdate((position) => {
+      env._position = position;
+    });
 
     setInterval(() => env.removeDeadParcels(), 10000);
 
@@ -57,6 +65,7 @@ export class Environment {
       sensors.getID(),
     ]);
     Config.configure(config);
+    env._parcelRadius = config.parcelRadius;
     env._id = id;
 
     const map = await buildMap(size, tiles);
@@ -67,8 +76,11 @@ export class Environment {
     return env;
   }
 
-  private removeParcel(parcel: Parcel) {
-    this._state.freeParcels.delete(parcel);
+  private removeParcel(parcel: Parcel, position_only: boolean = false) {
+    if (!position_only) {
+      this._state.freeParcels.delete(parcel.id);
+    }
+
     const parcelsInPosition = this._state.positionToParcels.get(parcel.position);
     if (parcelsInPosition !== undefined) {
       const idx = parcelsInPosition.findIndex((p) => p.id.equals(parcel.id));
@@ -82,36 +94,50 @@ export class Environment {
     }
   }
 
-  private onParcelSensing(visibleParcels: Parcel[]) {
+  private onParcelSensing(visibleParcels: HashSet<Parcel>) {
     let isChanged = false;
 
-    for (const parcel of visibleParcels) {
+    if (this._position !== undefined && this._parcelRadius !== undefined) {
+      for (const parcel of this._state.freeParcels.values()) {
+        if (
+          !visibleParcels.has(parcel) &&
+          this._position.manhattanDistance(parcel.position) <= this._parcelRadius
+        ) {
+          // the parcel is no longer visible
+          this.removeParcel(parcel);
+          isChanged = true;
+        }
+      }
+    }
+
+    for (const parcel of visibleParcels.values()) {
       if (parcel.agentID === null) {
         // the parcel is free
-        if (this._state.freeParcels.has(parcel)) {
+        if (this._state.freeParcels.has(parcel.id)) {
           // the parcel was already free
-          const parcelsInPosition = this._state.positionToParcels.get(parcel.position) || [];
-          const idx = parcelsInPosition.findIndex((p) => p.id.equals(parcel.id));
-
-          if (idx === -1) {
+          const oldParcel = this._state.freeParcels.get(parcel.id)!;
+          if (!oldParcel.position.equals(parcel.position)) {
             // the parcel has changed position
+            this.removeParcel(oldParcel, true);
+            this._state.freeParcels.set(parcel.id, parcel);
+            const parcelsInPosition = this._state.positionToParcels.get(parcel.position) || [];
             parcelsInPosition.push(parcel);
             this._state.positionToParcels.set(parcel.position, parcelsInPosition);
             isChanged = true;
           }
         } else {
           // the parcel is new
-          this._state.freeParcels.add(parcel);
+          this._state.freeParcels.set(parcel.id, parcel);
           const parcelsInPosition = this._state.positionToParcels.get(parcel.position) || [];
           parcelsInPosition.push(parcel);
           this._state.positionToParcels.set(parcel.position, parcelsInPosition);
 
           isChanged = true;
         }
-      } else if (this._state.freeParcels.has(parcel)) {
+      } else if (this._state.freeParcels.has(parcel.id)) {
         // the parcel was free and is now carried
         this.removeParcel(parcel);
-        if (!parcel.agentID.equals(this._id)) {
+        if (!this._id?.equals(parcel.agentID)) {
           // the parcel is not carried by the main player
           isChanged = true;
         }
@@ -285,16 +311,15 @@ export class Environment {
       positions.delete(agent.currentPosition);
     }
 
-    const frontier = new PriorityQueue<[Position, number]>({
-      comparator: (a, b) => a[1] - b[1],
-    });
-    frontier.queue([start, 0]);
+    const frontier = new MinPriorityQueue<[Position, number]>((v) => v[1]);
+
+    frontier.enqueue([start, 0]);
     const cameFrom = new HashMap<Position, Position | null>();
     const costSoFar = new HashMap<Position, number>();
     cameFrom.set(start, null);
     costSoFar.set(start, 0);
 
-    while (frontier.length > 0) {
+    while (frontier.size() > 0) {
       const current = frontier.dequeue()[0];
 
       if (current.equals(end)) {
@@ -310,7 +335,7 @@ export class Environment {
         if (!costSoFar.has(next) || newCost < costSoFar.get(next)!) {
           costSoFar.set(next, newCost);
           const priority = newCost + this.distance(next, end);
-          frontier.queue([next, priority]);
+          frontier.enqueue([next, priority]);
           cameFrom.set(next, current);
         }
       }

@@ -3,6 +3,7 @@
 //
 
 import { Agent, AgentID, Config, GridSize, Parcel, Position, Tile } from 'src/domain/structs';
+import { HashSet } from 'src/utils';
 
 export interface Sensors {
   /**
@@ -39,7 +40,7 @@ export interface Sensors {
    * Gets the parcels that are currently being sensed.
    * @param callback The callback to call when parcels are sensed.
    */
-  onParcelSensing(callback: (parcels: Parcel[]) => void): void;
+  onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void;
 
   /**
    * Gets the position of the agent when it is updated.

@@ -202,11 +202,11 @@ export class Client implements Actuators, Sensors {
     });
   }
 
-  public onParcelSensing(callback: (parcels: Parcel[]) => void): void {
+  public onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void {
     this._socket.on('parcels sensing', (parcels) => {
-      const newParcels = [];
+      const newParcels = new HashSet<Parcel>();
       for (const parcel of parcels) {
-        newParcels.push(
+        newParcels.add(
           new Parcel(
             new ParcelID(parcel.id),
             new DecayingValue(parcel.reward),
@@ -216,7 +216,7 @@ export class Client implements Actuators, Sensors {
         );
       }
 
-      if (newParcels.length > 0) {
+      if (newParcels.size > 0) {
         callback(newParcels);
       }
     });
