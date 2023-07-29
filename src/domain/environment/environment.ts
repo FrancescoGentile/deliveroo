@@ -164,6 +164,11 @@ export class Environment {
     this._state.visibleAgents = [];
 
     for (const agent of agents) {
+      if (this._id?.equals(agent.id)) {
+        // the agent is the main player
+        continue;
+      }
+
       // agent seen before
       if (this._state.agents.has(agent.id)) {
         const oldAgent = this._state.agents.get(agent.id)!;
@@ -269,7 +274,6 @@ export class Environment {
     const distance = this.distance(start, end);
 
     let nextPosition: Position | null = null;
-    // eslint-disable-next-line no-restricted-syntax
     for (const n of start.neigbours(this._map.size)) {
       try {
         if (this.distance(n, end) === distance - 1) {

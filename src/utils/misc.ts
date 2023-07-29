@@ -2,6 +2,8 @@
 //
 //
 
+import { Duration } from './time';
+
 /**
  * Merges two sorted arrays into a single sorted array.
  * @param a The first array.
@@ -67,12 +69,7 @@ export function getRandomInt(a: number, b?: number): number {
   return Math.floor(Math.random() * (max - min) + min);
 }
 
-/**
- * Pauses the execution for the given amount of time.
- * @param ms The amount of time to pause for (in milliseconds).
- * @returns A promise that resolves after the given amount of time.
- */
-export function sleep(ms: number): Promise<void> {
+export function sleep(duration: Duration): Promise<void> {
   // eslint-disable-next-line no-promise-executor-return
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, duration.milliseconds));
 }

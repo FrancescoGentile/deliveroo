@@ -125,7 +125,7 @@ export class Client implements Actuators, Sensors {
   public async getPosition(): Promise<Position> {
     while (this._agentPosition === undefined) {
       // eslint-disable-next-line no-await-in-loop
-      await sleep(100);
+      await sleep(Duration.fromMilliseconds(100));
     }
 
     return this._agentPosition;
@@ -134,7 +134,7 @@ export class Client implements Actuators, Sensors {
   public async getID(): Promise<AgentID> {
     while (this._agentID === undefined) {
       // eslint-disable-next-line no-await-in-loop
-      await sleep(100);
+      await sleep(Duration.fromMilliseconds(100));
     }
 
     return this._agentID;
@@ -143,7 +143,7 @@ export class Client implements Actuators, Sensors {
   public async getCrossableTiles(): Promise<Tile[]> {
     while (this._crossableTiles === undefined) {
       // eslint-disable-next-line no-await-in-loop
-      await sleep(100);
+      await sleep(Duration.fromMilliseconds(100));
     }
 
     return this._crossableTiles;
@@ -152,7 +152,7 @@ export class Client implements Actuators, Sensors {
   public async getGridSize(): Promise<GridSize> {
     while (this._gridSize === undefined) {
       // eslint-disable-next-line no-await-in-loop
-      await sleep(100);
+      await sleep(Duration.fromMilliseconds(100));
     }
 
     return this._gridSize;
@@ -161,7 +161,7 @@ export class Client implements Actuators, Sensors {
   public async getConfig(): Promise<Config> {
     while (this._config === undefined) {
       // eslint-disable-next-line no-await-in-loop
-      await sleep(100);
+      await sleep(Duration.fromMilliseconds(100));
     }
 
     return this._config;

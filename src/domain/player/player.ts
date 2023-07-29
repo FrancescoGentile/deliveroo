@@ -4,10 +4,10 @@
 
 import winston, { createLogger, Logger } from 'winston';
 
-import { HashMap } from 'src/utils';
+import { HashMap, sleep } from 'src/utils';
 import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
-import { Direction, Intention, IntentionType, Position } from 'src/domain/structs';
+import { Config, Direction, Intention, IntentionType, Position } from 'src/domain/structs';
 import { MonteCarloPlanner } from './planner';
 // import { PDDLPlanner } from './pddlPlanner';
 
@@ -43,21 +43,33 @@ export class Player {
   }
 
   public async run() {
-    const actualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
+    let actualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
     let blockedPositions: HashMap<Position, Intention[]> = new HashMap();
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const tmp = new HashMap<Position, Intention[]>();
+      const newActualPaths = new HashMap<Intention, Direction[] | null>();
+      const newBlockedPositions = new HashMap<Position, Intention[]>();
       for (const agent of this._environment.getVisibleAgents()) {
         const blockedIntentions = blockedPositions.get(agent.currentPosition);
         if (blockedIntentions !== undefined) {
-          tmp.set(agent.currentPosition, blockedIntentions);
+          for (const intention of blockedIntentions) {
+            newActualPaths.set(intention, actualPaths.get(intention)!);
+          }
+          newBlockedPositions.set(agent.currentPosition, blockedIntentions);
         }
       }
-      blockedPositions = tmp;
+
+      actualPaths = newActualPaths;
+      blockedPositions = newBlockedPositions;
 
       const intention = this._planner.getBestIntention(actualPaths);
+      if (intention === null) {
+        const { movementDuration } = Config.getInstance();
+        await sleep(movementDuration);
+        continue;
+      }
+
       // console.log(intention);
 
       if (this._planner.position.equals(intention.position)) {
@@ -89,9 +101,10 @@ export class Player {
           const path = this._environment.recomputePath(this._planner.position, intention.position);
           actualPaths.set(intention, path);
 
-          const blockedPosition = blockedPositions.get(intention.position) ?? [];
-          blockedPosition.push(intention);
-          blockedPositions.set(intention.position, blockedPosition);
+          const blockedPosition = this._planner.position.moveTo(direction);
+          const blockedIntentions = blockedPositions.get(blockedPosition) ?? [];
+          blockedIntentions.push(intention);
+          blockedPositions.set(blockedPosition, blockedIntentions);
         }
       }
     }

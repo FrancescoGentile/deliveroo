@@ -23,7 +23,7 @@ export class MonteCarloPlanner {
 
   private _lastIntention: Intention | null = null;
 
-  private _nextMoveIntention: Intention | null = null;
+  private _nextMoveIntention: [Intention, number] | null = null;
 
   private _nextIntentions: Intention[] = [];
 
@@ -68,34 +68,51 @@ export class MonteCarloPlanner {
     );
   }
 
-  private getBestMoveIntention(): Intention {
+  private getBestMoveIntention(
+    actualPaths: HashMap<Intention, Direction[] | null>
+  ): [Intention, number] | null {
     const promisingPositions = this._state.environment.getPromisingPositions(this.position);
 
-    let intention: Intention | null = null;
+    let bestIntention: Intention | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
     let bestReward = Number.NEGATIVE_INFINITY;
     const now = Instant.now();
 
     for (const [movePosition, value] of promisingPositions) {
+      const intention = Intention.move(movePosition);
+      let distanceToMovePosition: number;
+      if (actualPaths.has(intention)) {
+        const path = actualPaths.get(intention);
+        if (path === null || path === undefined) {
+          // if the intention is not reachable, we don't consider it
+          continue;
+        } else {
+          distanceToMovePosition = path.length;
+        }
+      } else {
+        distanceToMovePosition = this._state.environment.distance(this.position, movePosition);
+      }
+
       const deliveryPosition = this._state.environment.getClosestDeliveryPosition(movePosition);
-      const totalDistance =
-        this._state.environment.distance(this.position, movePosition) +
-        this._state.environment.distance(movePosition, deliveryPosition);
+      const distanceToDelivery = this._state.environment.distance(movePosition, deliveryPosition);
+      const totalDistance = distanceToMovePosition + distanceToDelivery;
 
       const { movementDuration } = Config.getInstance();
       const totalTime = movementDuration.multiply(totalDistance);
       const reward = new DecayingValue(value, now).getValueByInstant(now.add(totalTime));
 
       if (reward > bestReward) {
-        intention = Intention.move(movePosition);
+        bestIntention = Intention.move(movePosition);
+        bestDistance = distanceToMovePosition;
         bestReward = reward;
       }
     }
 
-    if (intention === null) {
-      throw new Error('No best move intention found');
+    if (bestIntention === null) {
+      return null;
     }
 
-    return intention;
+    return [bestIntention, bestDistance];
   }
 
   private isFullyExpanded(): boolean {
@@ -201,21 +218,21 @@ export class MonteCarloPlanner {
   }
 
   public run(): void {
+    this._nextIteration = undefined;
     if (this._nextIntentions.length === 0) {
-      this._nextMoveIntention = this.getBestMoveIntention();
-      this._nextIteration = undefined;
-    } else {
-      let node = this.selectChild();
-      while (!node.isTerminal()) {
-        node = node.selectChild();
-      }
-
-      const utility = new Utility(0, [], node.state.arrivalTime);
-      node.backpropagate(utility);
-      this._visits += 1;
-
-      this._nextIteration = setImmediate(this.run.bind(this));
+      return;
     }
+
+    let node = this.selectChild();
+    while (!node.isTerminal()) {
+      node = node.selectChild();
+    }
+
+    const utility = new Utility(0, [], node.state.arrivalTime);
+    node.backpropagate(utility);
+    this._visits += 1;
+
+    this._nextIteration = setImmediate(this.run.bind(this));
   }
 
   private getTree(children: Node[], startTime: Instant, position: Position): any {
@@ -237,21 +254,35 @@ export class MonteCarloPlanner {
     return res;
   }
 
-  public getBestIntention(actualPaths: HashMap<Intention, Direction[] | null>): Intention {
+  public getBestIntention(actualPaths: HashMap<Intention, Direction[] | null>): Intention | null {
     if (this._nextMoveIntention !== null) {
-      return this._nextMoveIntention;
-    }
+      // we previously set the next move intention, this means that none of the
+      // children has a score greater than 0, so it is better to move
 
-    if (this._children.length === 0) {
-      clearImmediate(this._nextIteration);
-      this._nextIteration = undefined;
-      this.run();
+      const path = actualPaths.get(this._nextMoveIntention[0]);
 
-      if (this._children.length === 0) {
-        return this._nextMoveIntention!;
+      if (path === undefined) {
+        // the path is not blocked, so we can move
+        return this._nextMoveIntention[0];
       }
 
-      return this._children[0].intention;
+      if (path === null) {
+        // the move intention is not reachable, so we search for a new one
+        this._nextMoveIntention = this.getBestMoveIntention(actualPaths);
+        // if all the move intentions are not reachable, we return null
+        return this._nextMoveIntention === null ? null : this._nextMoveIntention[0];
+      }
+
+      if (path.length <= this._nextMoveIntention[1]) {
+        // the agent is already moving to the next move intention
+        // so we don't change it
+        return this._nextMoveIntention[0];
+      }
+
+      // the path is blocked, the agent computed a new path
+      // to verify if there is a better move intention, we search for a new one
+      this._nextMoveIntention = this.getBestMoveIntention(actualPaths);
+      return this._nextMoveIntention === null ? null : this._nextMoveIntention[0];
     }
 
     let bestIntention: Intention | null = null;
@@ -264,7 +295,8 @@ export class MonteCarloPlanner {
       if (actualPaths.has(child.intention)) {
         const path = actualPaths.get(child.intention);
         if (path === null || path === undefined) {
-          distance = Number.POSITIVE_INFINITY;
+          // if the intention is not reachable, we don't consider it
+          continue;
         } else {
           distance = path.length;
         }
@@ -305,13 +337,23 @@ export class MonteCarloPlanner {
     }
 
     if (bestScore <= 0) {
+      // no pickup or putdown intention has a positive score
+      // so we search for a move intention
+
       if (this.isFullyExpanded()) {
+        // if the root is fully expanded, we can clear the children
+        // since no child could have a positive score by further exploration
+
+        this._children.splice(0, this._children.length);
         clearImmediate(this._nextIteration);
         this._nextIteration = undefined;
-        this._nextMoveIntention = this.getBestMoveIntention();
-        return this._nextMoveIntention;
+        this._nextMoveIntention = this.getBestMoveIntention(actualPaths);
+        return this._nextMoveIntention === null ? null : this._nextMoveIntention[0];
       }
-      return this.getBestMoveIntention();
+
+      // if the root is not fully expanded, we temporaruly return the best move intention
+      const moveIntention = this.getBestMoveIntention(actualPaths);
+      return moveIntention === null ? null : moveIntention[0];
     }
 
     // console.log(treeify.asTree(this.getTree(this._children, now, this.position), true, false));
