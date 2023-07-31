@@ -4,7 +4,7 @@
 
 import winston, { createLogger, Logger } from 'winston';
 
-import { HashMap, sleep } from 'src/utils';
+import { HashMap, HashSet, sleep } from 'src/utils';
 import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
 import { Config, Direction, Intention, IntentionType, Position } from 'src/domain/structs';
@@ -17,6 +17,10 @@ export class Player {
   private readonly _environment: Environment;
 
   private readonly _actuators: Actuators;
+
+  private _actualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
+
+  private _blockedBottlenecks: [HashSet<Position>, Intention][] = [];
 
   private readonly _logger: Logger;
 
@@ -38,32 +42,15 @@ export class Player {
 
     this._actuators = actuators;
     this._environment = environment;
+    this._environment.onOccupiedPositionsChange(() => this.onOccupiedPositionsChange());
 
     // this._pddlPlanner = new PDDLPlanner(environment);
   }
 
   public async run() {
-    let actualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
-    let blockedPositions: HashMap<Position, Intention[]> = new HashMap();
-
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const newActualPaths = new HashMap<Intention, Direction[] | null>();
-      const newBlockedPositions = new HashMap<Position, Intention[]>();
-      for (const agent of this._environment.getVisibleAgents()) {
-        const blockedIntentions = blockedPositions.get(agent.currentPosition);
-        if (blockedIntentions !== undefined) {
-          for (const intention of blockedIntentions) {
-            newActualPaths.set(intention, actualPaths.get(intention)!);
-          }
-          newBlockedPositions.set(agent.currentPosition, blockedIntentions);
-        }
-      }
-
-      actualPaths = newActualPaths;
-      blockedPositions = newBlockedPositions;
-
-      const intention = this._planner.getBestIntention(actualPaths);
+      const intention = this._planner.getBestIntention(this._actualPaths);
       if (intention === null) {
         const { movementDuration } = Config.getInstance();
         await sleep(movementDuration);
@@ -73,6 +60,7 @@ export class Player {
       // console.log(intention);
 
       if (this._planner.position.equals(intention.position)) {
+        this._actualPaths.delete(intention);
         // console.log('performing intention');
         switch (intention.type) {
           case IntentionType.PICKUP:
@@ -87,26 +75,65 @@ export class Player {
 
         this._planner.performedIntention(intention);
       } else {
-        let direction: Direction;
-        if (actualPaths.has(intention)) {
-          direction = actualPaths.get(intention)!.shift()!;
+        let directions: Direction[];
+        if (this._actualPaths.has(intention)) {
+          directions = [this._actualPaths.get(intention)!.shift()!];
         } else {
-          direction = this._environment.nextDirection(this._planner.position, intention.position)!;
+          directions = this._environment.getNextDirections(
+            this._planner.position,
+            intention.position
+          )!;
         }
 
-        const success = await this._actuators.move(direction);
-        if (success) {
-          this._planner.position = this._planner.position.moveTo(direction);
-        } else {
-          const path = this._environment.recomputePath(this._planner.position, intention.position);
-          actualPaths.set(intention, path);
+        let success = false;
+        for (const direction of directions) {
+          success = await this._actuators.move(direction);
+          if (success) {
+            this._planner.position = this._planner.position.moveTo(direction);
+            break;
+          }
+        }
 
-          const blockedPosition = this._planner.position.moveTo(direction);
-          const blockedIntentions = blockedPositions.get(blockedPosition) ?? [];
-          blockedIntentions.push(intention);
-          blockedPositions.set(blockedPosition, blockedIntentions);
+        if (!success) {
+          const path = this._environment.recomputePath(this._planner.position, intention.position);
+          this._actualPaths.set(intention, path);
+
+          const bottleneck = this._environment.computeBottleneck(
+            this._planner.position,
+            intention.position
+          );
+
+          this._blockedBottlenecks.push([bottleneck, intention]);
         }
       }
     }
+  }
+
+  private onOccupiedPositionsChange() {
+    const oldActualPaths = this._actualPaths;
+    const oldBlockedBottlenecks = this._blockedBottlenecks;
+
+    const newActualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
+    const newBlockedBottlenecks: [HashSet<Position>, Intention][] = [];
+
+    const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
+
+    for (const agent of this._environment.getVisibleAgents()) {
+      for (const [idx, [bottleneck, intention]] of oldBlockedBottlenecks.entries()) {
+        if (bottleneck.has(agent.currentPosition)) {
+          if (oldActualPaths.has(intention)) {
+            newActualPaths.set(intention, oldActualPaths.get(intention)!);
+
+            if (!alreadyAdded[idx]) {
+              newBlockedBottlenecks.push([bottleneck, intention]);
+              alreadyAdded[idx] = true;
+            }
+          }
+        }
+      }
+    }
+
+    this._actualPaths = newActualPaths;
+    this._blockedBottlenecks = newBlockedBottlenecks;
   }
 }

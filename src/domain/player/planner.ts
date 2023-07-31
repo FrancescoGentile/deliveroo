@@ -47,7 +47,7 @@ export class MonteCarloPlanner {
 
     this.setNextIntentions();
 
-    environment.onEnvironmentChange(this.onEnvironmentChanged.bind(this));
+    environment.onParcelsChange(this.onParcelsChange.bind(this));
   }
 
   private setNextIntentions() {
@@ -362,7 +362,7 @@ export class MonteCarloPlanner {
     return bestIntention!;
   }
 
-  public onEnvironmentChanged(): void {
+  public onParcelsChange(): void {
     this._children.splice(0, this._children.length);
     this.setNextIntentions();
 

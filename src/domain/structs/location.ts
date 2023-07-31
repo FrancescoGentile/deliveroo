@@ -58,6 +58,31 @@ export class Position implements Hashable {
     return positions;
   }
 
+  /**
+   * Returns the direction to the other position. This method assumes that the
+   * other position is a neighbour of this position. If not, the result should not
+   * be trusted.
+   * @param other The other position.
+   * @returns The direction to the other position.
+   */
+  public directionTo(other: Position): Direction {
+    let direction;
+
+    if (other.row === this.row) {
+      if (other.column > this.column) {
+        direction = Direction.UP;
+      } else {
+        direction = Direction.DOWN;
+      }
+    } else if (other.row > this.row) {
+      direction = Direction.RIGHT;
+    } else {
+      direction = Direction.LEFT;
+    }
+
+    return direction;
+  }
+
   public isValid(size: GridSize): boolean {
     return this.row >= 0 && this.row < size.rows && this.column >= 0 && this.column < size.columns;
   }
