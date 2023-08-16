@@ -15,7 +15,7 @@ export class PDDLProblem {
 
   public toPDDLString(): string {
     return `(define (problem problem1)
-        (:domain deliverooTemporal)
+        (:domain deliveroo)
         (:objects ${this._objects.join(' ').trim()})
         (:init ${this._init.join(' ').trim()})
         (:goal (and ${this._goal.join(' ').trim()}))

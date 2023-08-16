@@ -16,7 +16,9 @@ async function main() {
 
   const [sensors, actuators] = await initInfrastructure(process.env.HOST, process.env.TOKEN);
   const player = await initDomain(sensors, actuators);
-  await player.run();
+
+  const withPDDL = process.argv.includes('--pddl');
+  await player.run(withPDDL);
 }
 
 main()

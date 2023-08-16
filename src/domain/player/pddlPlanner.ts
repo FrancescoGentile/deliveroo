@@ -1,24 +1,24 @@
 import { exec } from 'child_process';
 import { Environment } from 'src/domain/environment';
-import { Position, PDDLProblem, Direction } from 'src/domain/structs';
+import { Position, Direction } from 'src/domain/structs';
 import { parsePlan } from 'src/utils';
 
 export class PDDLPlanner {
-  private readonly _domain_path: string = 'pddl/domain.pddl';
+  private readonly _domain_path: string = 'src/pddl/domain.pddl';
 
-  private readonly _problem_path: string = 'pddl/problem.pddl';
-
-  private readonly _problem: PDDLProblem;
+  private readonly _problem_path: string = 'src/pddl/problem.pddl';
 
   private readonly _environment: Environment;
 
   public constructor(environment: Environment) {
     this._environment = environment;
-    this._problem = environment.toPDDL();
   }
 
-  public async getPlan(agentPosition: Position, agentDestination: Position): Promise<Direction[]> {
-    const tmpProblem = structuredClone(this._problem);
+  public getPlan = async (
+    agentPosition: Position,
+    agentDestination: Position
+  ): Promise<Direction[]> => {
+    const tmpProblem = this._environment.toPDDL();
 
     const agents = [];
     for (const agent of this._environment.getVisibleAgents()) {
@@ -39,7 +39,7 @@ export class PDDLPlanner {
         reject(err);
       }
     });
-  }
+  };
 
   private async runSolver(): Promise<string> {
     return new Promise((resolve, reject) => {

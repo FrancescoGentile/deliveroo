@@ -466,17 +466,19 @@ export class Environment {
 
   public toPDDL(): PDDLProblem {
     const tiles = this._map.crossableTiles.map(
-      (tile) => `(t_${tile.position.row}_${tile.position.column})`
+      (tile) => `t_${tile.position.row}_${tile.position.column}`
     );
+    tiles.push('- tile');
 
     const neigbours = [];
     for (const tile of this._map.crossableTiles) {
       for (const neighbour of tile.position.neigbours(this._map.size)) {
-        neigbours.push(
-          `(${this.getNextDirections(tile.position, neighbour)} t_${tile.position.row}_${
-            tile.position.column
-          } t_${neighbour.row}_${neighbour.column})`
-        );
+        if (this._map.crossableIndexes.has(neighbour)) {
+          const nextDirection = tile.position.directionTo(neighbour);
+          neigbours.push(
+            `(${nextDirection} t_${tile.position.row}_${tile.position.column} t_${neighbour.row}_${neighbour.column})`
+          );
+        }
       }
     }
 

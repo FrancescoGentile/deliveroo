@@ -9,7 +9,7 @@ import { Environment } from 'src/domain/environment';
 import { Actuators } from 'src/domain/ports';
 import { Config, Direction, Intention, IntentionType, Position } from 'src/domain/structs';
 import { MonteCarloPlanner } from './planner';
-// import { PDDLPlanner } from './pddlPlanner';
+import { PDDLPlanner } from './pddlPlanner';
 
 export class Player {
   private readonly _planner: MonteCarloPlanner;
@@ -24,7 +24,7 @@ export class Player {
 
   private readonly _logger: Logger;
 
-  // private readonly _pddlPlanner: PDDLPlanner;
+  private readonly _pddlPlanner: PDDLPlanner;
 
   public constructor(position: Position, environment: Environment, actuators: Actuators) {
     this._logger = createLogger({
@@ -44,10 +44,10 @@ export class Player {
     this._environment = environment;
     this._environment.onOccupiedPositionsChange(() => this.onOccupiedPositionsChange());
 
-    // this._pddlPlanner = new PDDLPlanner(environment);
+    this._pddlPlanner = new PDDLPlanner(environment);
   }
 
-  public async run() {
+  public async run(withPDDL: boolean) {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const intention = this._planner.getBestIntention(this._actualPaths);
@@ -106,7 +106,15 @@ export class Player {
         }
 
         if (!success) {
-          const path = this._environment.recomputePath(this._planner.position, intention.position);
+          let path: Direction[] | null;
+          if (withPDDL) {
+            path = await this._pddlPlanner.getPlan(this._planner.position, intention.position);
+            if (path.length === 0) {
+              path = null;
+            }
+          } else {
+            path = this._environment.recomputePath(this._planner.position, intention.position);
+          }
           this._actualPaths.set(intention, [this._planner.position, path]);
 
           const bottleneck = this._environment.computeBottleneck(

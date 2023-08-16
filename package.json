@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc && babel tmp_dist -d dist && rm -rf tmp_dist",
     "start": "node --experimental-loader=extensionless dist/index.js",
+    "start-pddl": "node --experimental-loader=extensionless dist/index.js --pddl",
     "test": "echo \"Error: no test specified\" && exit 1",
     "pre-commit": "lint-staged",
     "prepare": "husky install",
