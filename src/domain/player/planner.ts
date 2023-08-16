@@ -69,7 +69,7 @@ export class MonteCarloPlanner {
   }
 
   private getBestMoveIntention(
-    actualPaths: HashMap<Intention, Direction[] | null>
+    actualPaths: HashMap<Intention, [Position, Direction[] | null]>
   ): [Intention, number] | null {
     const promisingPositions = this._state.environment.getPromisingPositions(this.position);
 
@@ -82,12 +82,13 @@ export class MonteCarloPlanner {
       const intention = Intention.move(movePosition);
       let distanceToMovePosition: number;
       if (actualPaths.has(intention)) {
-        const path = actualPaths.get(intention);
-        if (path === null || path === undefined) {
+        const [position, path] = actualPaths.get(intention)!;
+        if (path === null) {
           // if the intention is not reachable, we don't consider it
           continue;
         } else {
-          distanceToMovePosition = path.length;
+          distanceToMovePosition =
+            this._state.environment.distance(this.position, position) + path.length;
         }
       } else {
         distanceToMovePosition = this._state.environment.distance(this.position, movePosition);
@@ -254,17 +255,19 @@ export class MonteCarloPlanner {
     return res;
   }
 
-  public getBestIntention(actualPaths: HashMap<Intention, Direction[] | null>): Intention | null {
+  public getBestIntention(
+    actualPaths: HashMap<Intention, [Position, Direction[] | null]>
+  ): Intention | null {
     if (this._nextMoveIntention !== null) {
       // we previously set the next move intention, this means that none of the
       // children has a score greater than 0, so it is better to move
 
-      const path = actualPaths.get(this._nextMoveIntention[0]);
-
-      if (path === undefined) {
+      if (!actualPaths.has(this._nextMoveIntention[0])) {
         // the path is not blocked, so we can move
         return this._nextMoveIntention[0];
       }
+
+      const [, path] = actualPaths.get(this._nextMoveIntention[0])!;
 
       if (path === null) {
         // the move intention is not reachable, so we search for a new one
@@ -293,12 +296,12 @@ export class MonteCarloPlanner {
     for (const child of this._children.values()) {
       let distance: number;
       if (actualPaths.has(child.intention)) {
-        const path = actualPaths.get(child.intention);
-        if (path === null || path === undefined) {
+        const [position, path] = actualPaths.get(child.intention)!;
+        if (path === null) {
           // if the intention is not reachable, we don't consider it
           continue;
         } else {
-          distance = path.length;
+          distance = this._state.environment.distance(this.position, position) + path.length;
         }
       } else {
         distance = this._state.environment.distance(this.position, child.intention.position);

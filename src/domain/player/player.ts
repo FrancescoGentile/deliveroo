@@ -18,7 +18,7 @@ export class Player {
 
   private readonly _actuators: Actuators;
 
-  private _actualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
+  private _actualPaths: HashMap<Intention, [Position, Direction[] | null]> = new HashMap();
 
   private _blockedBottlenecks: [HashSet<Position>, Intention][] = [];
 
@@ -57,7 +57,7 @@ export class Player {
         continue;
       }
 
-      // console.log(intention);
+      // console.log(this._planner.position, intention);
 
       if (this._planner.position.equals(intention.position)) {
         this._actualPaths.delete(intention);
@@ -77,7 +77,18 @@ export class Player {
       } else {
         let directions: Direction[];
         if (this._actualPaths.has(intention)) {
-          directions = [this._actualPaths.get(intention)!.shift()!];
+          const [position, path] = this._actualPaths.get(intention)!;
+
+          if (path === null) {
+            throw new Error('Path is null');
+          }
+
+          if (this._planner.position.equals(position)) {
+            directions = [path.shift()!];
+            this._actualPaths.set(intention, [position.moveTo(directions[0]), path]);
+          } else {
+            directions = this._environment.getNextDirections(this._planner.position, position)!;
+          }
         } else {
           directions = this._environment.getNextDirections(
             this._planner.position,
@@ -96,7 +107,7 @@ export class Player {
 
         if (!success) {
           const path = this._environment.recomputePath(this._planner.position, intention.position);
-          this._actualPaths.set(intention, path);
+          this._actualPaths.set(intention, [this._planner.position, path]);
 
           const bottleneck = this._environment.computeBottleneck(
             this._planner.position,
@@ -113,7 +124,7 @@ export class Player {
     const oldActualPaths = this._actualPaths;
     const oldBlockedBottlenecks = this._blockedBottlenecks;
 
-    const newActualPaths: HashMap<Intention, Direction[] | null> = new HashMap();
+    const newActualPaths: HashMap<Intention, [Position, Direction[] | null]> = new HashMap();
     const newBlockedBottlenecks: [HashSet<Position>, Intention][] = [];
 
     const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
