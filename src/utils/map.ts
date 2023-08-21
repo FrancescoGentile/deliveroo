@@ -2,7 +2,7 @@
 //
 //
 
-import { Hashable } from './hashable';
+import { Hashable } from './interfaces';
 
 export class HashMap<K extends Hashable, V> {
   private readonly _map: Map<string, [K, V]>;

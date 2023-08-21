@@ -2,10 +2,18 @@
 //
 //
 
-import { Hashable } from './hashable';
+import { Hashable } from './interfaces';
 
 export class HashSet<V extends Hashable> {
   private readonly _map: Map<string, V> = new Map();
+
+  public constructor(values?: V[]) {
+    if (values) {
+      for (const value of values) {
+        this.add(value);
+      }
+    }
+  }
 
   public add(value: V): void {
     this._map.set(value.hash(), value);

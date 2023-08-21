@@ -2,6 +2,10 @@
 //
 //
 
+// ---------------------------------------------------------------------------
+// Instant
+// ---------------------------------------------------------------------------
+
 export class Instant {
   private constructor(private readonly _value: number) {}
 
@@ -28,7 +32,19 @@ export class Instant {
   public equals(other: Instant): boolean {
     return this._value === other._value;
   }
+
+  public serialize(): string {
+    return this._value.toString();
+  }
+
+  public static deserialize(serialized: string): Instant {
+    return new Instant(parseInt(serialized, 10));
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Duration
+// ---------------------------------------------------------------------------
 
 export class Duration {
   private constructor(private readonly _value: number) {}
@@ -51,5 +67,13 @@ export class Duration {
 
   public equals(other: Duration): boolean {
     return this._value === other._value;
+  }
+
+  public serialize(): string {
+    return this._value.toString();
+  }
+
+  public static deserialize(serialized: string): Duration {
+    return new Duration(parseInt(serialized, 10));
   }
 }

@@ -5,18 +5,14 @@
 import * as dotenv from 'dotenv';
 
 import { initInfrastructure } from './infrastructure';
-import { initDomain } from './domain';
+import { startPlayer } from './logic';
 
 async function main() {
   dotenv.config();
 
-  if (!process.env.HOST || !process.env.TOKEN) {
-    throw new Error('HOST and TOKEN must be set.');
-  }
-
-  const [sensors, actuators] = await initInfrastructure(process.env.HOST, process.env.TOKEN);
-  const player = await initDomain(sensors, actuators);
-  await player.run();
+  const [sensors, actuators, messenger] = await initInfrastructure();
+  const player = startPlayer(sensors, actuators, messenger);
+  player.start();
 }
 
 main()

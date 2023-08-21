@@ -2,14 +2,15 @@
 //
 //
 
-import { Actuators, Sensors } from 'src/domain/ports';
+import { Actuators, Sensors, Messenger } from 'src/logic/ports';
 import { Client } from './client';
 
-export async function initInfrastructure(
-  host: string,
-  token: string
-): Promise<[Sensors, Actuators]> {
-  const client = new Client(host, token);
+export async function initInfrastructure(): Promise<[Sensors, Actuators, Messenger]> {
+  if (!process.env.HOST || !process.env.TOKEN) {
+    throw new Error('HOST and TOKEN must be set in the environment.');
+  }
 
-  return [client, client];
+  const client = new Client(process.env.HOST, process.env.TOKEN);
+
+  return [client, client, client];
 }

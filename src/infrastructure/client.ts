@@ -4,22 +4,32 @@
 
 import { Socket, io } from 'socket.io-client';
 
-import { Actuators, Sensors } from 'src/domain/ports';
+import { Actuators, Messenger, Sensors } from 'src/logic/ports';
 import {
   AgentID,
   Agent,
-  Config,
+  GameConfig,
   DecayingValue,
   Direction,
-  GridSize,
   Parcel,
   ParcelID,
   Position,
   Tile,
-} from 'src/domain/structs';
+  HelloMessage,
+  serializeMessage,
+  deserializeMessage,
+  MergeRequestMessage,
+  NewTeamMessage,
+  StateMessage,
+  ParcelUpdateMessage,
+  AgentUpdateMessage,
+  MessageType,
+  ExecuteMessage,
+} from 'src/logic/structs';
+
 import { Duration, HashSet, Instant, sleep } from 'src/utils';
 
-export class Client implements Actuators, Sensors {
+export class Client implements Actuators, Sensors, Messenger {
   private readonly _socket: Socket;
 
   private _agentPosition?: Position;
@@ -28,9 +38,7 @@ export class Client implements Actuators, Sensors {
 
   private _crossableTiles?: Tile[];
 
-  private _gridSize?: GridSize;
-
-  private _config?: Config;
+  private _config?: GameConfig;
 
   public constructor(host: string, token: string) {
     this._socket = io(host, {
@@ -45,15 +53,18 @@ export class Client implements Actuators, Sensors {
     this._socket.once('config', this.setConfig.bind(this));
   }
 
+  // ---------------------------------------------------------------------------
+  // Attributes setters
+  // ---------------------------------------------------------------------------
+
   private setAgentInfo(agent: any) {
     this._agentPosition = new Position(agent.x, agent.y);
     this._agentID = new AgentID(agent.id);
   }
 
-  private setMap(width: number, height: number, tiles: any[]) {
-    this._gridSize = new GridSize(width, height);
+  private setMap(_width: number, _height: number, tiles: any[]) {
     this._crossableTiles = tiles.map(
-      (tile) => new Tile(new Position(tile.x, tile.y), tile.delivery, true, tile.parcelSpawner)
+      (tile) => new Tile(new Position(tile.x, tile.y), tile.delivery, tile.parcelSpawner)
     );
   }
 
@@ -111,16 +122,20 @@ export class Client implements Actuators, Sensors {
       parcelGenerationInterval,
       parcelRewardAverage,
       parcelRewardVariance,
-      parcelDecayingInterval,
+      parcelDecayingInterval: Duration.fromMilliseconds(parcelDecayingInterval),
       movementSteps,
       movementDuration: Duration.fromMilliseconds(movementDuration),
       parcelRadius,
       agentRadius,
       maxParcels,
       randomAgents,
-      randomAgentMovementDuration,
+      randomAgentMovementDuration: Duration.fromMilliseconds(randomAgentMovementDuration),
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // Invokable methods
+  // ---------------------------------------------------------------------------
 
   public async getPosition(): Promise<Position> {
     while (this._agentPosition === undefined) {
@@ -149,16 +164,7 @@ export class Client implements Actuators, Sensors {
     return this._crossableTiles;
   }
 
-  public async getGridSize(): Promise<GridSize> {
-    while (this._gridSize === undefined) {
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(Duration.fromMilliseconds(100));
-    }
-
-    return this._gridSize;
-  }
-
-  public async getConfig(): Promise<Config> {
+  public async getConfig(): Promise<GameConfig> {
     while (this._config === undefined) {
       // eslint-disable-next-line no-await-in-loop
       await sleep(Duration.fromMilliseconds(100));
@@ -202,21 +208,25 @@ export class Client implements Actuators, Sensors {
     });
   }
 
-  public onParcelSensing(callback: (parcels: HashSet<Parcel>) => void): void {
+  // ---------------------------------------------------------------------------
+  // Event listeners
+  // ---------------------------------------------------------------------------
+
+  public onParcelSensing(callback: (parcels: Parcel[]) => void): void {
     this._socket.on('parcels sensing', (parcels) => {
-      const newParcels = new HashSet<Parcel>();
+      const newParcels = [];
       for (const parcel of parcels) {
-        newParcels.add(
+        newParcels.push(
           new Parcel(
             new ParcelID(parcel.id),
-            new DecayingValue(parcel.reward),
+            new DecayingValue(parcel.reward, Instant.now()),
             new Position(parcel.x, parcel.y),
             parcel.carriedBy ? new AgentID(parcel.carriedBy) : null
           )
         );
       }
 
-      if (newParcels.size > 0) {
+      if (newParcels.length > 0) {
         callback(newParcels);
       }
     });
@@ -234,19 +244,186 @@ export class Client implements Actuators, Sensors {
       for (const agent of agents) {
         if (Number.isInteger(agent.x) && Number.isInteger(agent.y)) {
           newAgents.push(
-            new Agent(
-              new AgentID(agent.id),
-              new Position(agent.x, agent.y),
-              agent.score,
-              Instant.now(),
-              false
-            )
+            new Agent(new AgentID(agent.id), new Position(agent.x, agent.y), agent.score)
           );
         }
       }
 
       if (newAgents.length > 0) {
         callback(newAgents);
+      }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Message sending
+  // ---------------------------------------------------------------------------
+
+  public async shoutHello(message: HelloMessage): Promise<void> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit('shout', serializeMessage(message), () => {
+        resolve();
+      });
+    });
+  }
+
+  public async askForMerge(id: AgentID, message: MergeRequestMessage): Promise<boolean> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit(
+        'ask',
+        id.toString(),
+        serializeMessage(message),
+        (response: boolean | PromiseLike<boolean>) => {
+          resolve(response);
+        }
+      );
+    });
+  }
+
+  public async informAboutNewTeam(id: AgentID, message: NewTeamMessage): Promise<void> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+        resolve();
+      });
+    });
+  }
+
+  public async informAboutState(id: AgentID, message: StateMessage): Promise<void> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+        resolve();
+      });
+    });
+  }
+
+  public async informAboutParcelUpdate(id: AgentID, message: ParcelUpdateMessage): Promise<void> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+        resolve();
+      });
+    });
+  }
+
+  public async informAboutAgentlUpdate(id: AgentID, message: AgentUpdateMessage): Promise<void> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+        resolve();
+      });
+    });
+  }
+
+  public async askToExecute(id: AgentID, message: ExecuteMessage): Promise<boolean> {
+    return new Promise((resolve, _reject) => {
+      this._socket.emit(
+        'ask',
+        id.toString(),
+        serializeMessage(message),
+        (response: boolean | PromiseLike<boolean>) => {
+          resolve(response);
+        }
+      );
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Message receiving
+  // ---------------------------------------------------------------------------
+
+  public async onHelloMessage(
+    callback: (id: AgentID, message: HelloMessage) => void
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.HELLO) {
+        callback(new AgentID(id), message);
+        if (reply) {
+          // this should not happen for hello messages
+          reply();
+        }
+      }
+    });
+  }
+
+  public async onMergeRequestMessage(
+    callback: (id: AgentID, message: MergeRequestMessage) => boolean
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.MERGE_REQUEST) {
+        const response = callback(new AgentID(id), message);
+        if (reply) {
+          reply(response);
+        }
+      }
+    });
+  }
+
+  public async onNewTeamMessage(
+    callback: (id: AgentID, message: NewTeamMessage) => void
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.NEW_TEAM) {
+        callback(new AgentID(id), message);
+        if (reply) {
+          reply();
+        }
+      }
+    });
+  }
+
+  public async onStateMessage(
+    callback: (id: AgentID, message: StateMessage) => void
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.STATE) {
+        callback(new AgentID(id), message);
+        if (reply) {
+          reply();
+        }
+      }
+    });
+  }
+
+  public async onParcelUpdateMessage(
+    callback: (id: AgentID, message: ParcelUpdateMessage) => void
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.PARCEL_UPDATE) {
+        callback(new AgentID(id), message);
+        if (reply) {
+          reply();
+        }
+      }
+    });
+  }
+
+  public async onAgentUpdateMessage(
+    callback: (id: AgentID, message: AgentUpdateMessage) => void
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.AGENT_UPDATE) {
+        callback(new AgentID(id), message);
+        if (reply) {
+          reply();
+        }
+      }
+    });
+  }
+
+  public async onExecuteMessage(
+    callback: (id: AgentID, message: ExecuteMessage) => boolean
+  ): Promise<void> {
+    this._socket.on('msg', (id, _name, msg, reply) => {
+      const message = deserializeMessage(msg);
+      if (message.type === MessageType.EXECUTE) {
+        const response = callback(new AgentID(id), message);
+        if (reply) {
+          reply(response);
+        }
       }
     });
   }

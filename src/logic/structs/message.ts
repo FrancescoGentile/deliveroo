@@ -1,0 +1,208 @@
+//
+//
+//
+
+import { Agent, AgentID } from './agent';
+import { Direction, Position } from './env';
+import { Parcel, ParcelID } from './parcel';
+
+export enum MessageType {
+  HELLO = 'hello',
+  MERGE_REQUEST = 'merge request',
+  NEW_TEAM = 'new team',
+  STATE = 'state',
+  PARCEL_UPDATE = 'parcel update',
+  AGENT_UPDATE = 'agent update',
+  EXECUTE = 'execute',
+}
+
+export type Message =
+  | HelloMessage
+  | MergeRequestMessage
+  | NewTeamMessage
+  | StateMessage
+  | ParcelUpdateMessage
+  | AgentUpdateMessage
+  | ExecuteMessage;
+
+/**
+ * Message periodically shouted by a team leader to inform any existing agents about the team.
+ * If an agent receives this message, three things can happen:
+ * 1. If the agent is the leader of a team (note that a team can consist of a single agent)
+ * and the message comes from a possible new leader (i.e. its ID is lower than the agent's ID),
+ * the agent should send a `MergeRequestMessage` to the other agent.
+ * 2. If the agent is the leader of a team and the message comes from a possible new member
+ * (i.e. its ID is greater than the agent's ID), the agent should do nothing. In this case,
+ * indeed, the other agent will send a `MergeRequestMessage` in response to the `HelloMessage`
+ * periodically sent by this leader.
+ * 3. If the agent is not the leader of a team, the agent should do nothing.
+ */
+export interface HelloMessage {
+  type: MessageType.HELLO;
+  secret: string;
+}
+
+/**
+ * Message sent by a team leader to the leader of another team to request to merge the two teams.
+ * The sending leader should send this message only if the ID of the receiving leader is lower than its ID,
+ * that is, if the receiving leader would be the new leader of the merged team.
+ */
+export interface MergeRequestMessage {
+  type: MessageType.MERGE_REQUEST;
+  secret: string;
+  members: AgentID[];
+}
+
+/**
+ * Message sent by the new lader of a merged team to all the members of the merged teams to inform them
+ * of the creation of the new team and of the new team members.
+ */
+export interface NewTeamMessage {
+  type: MessageType.NEW_TEAM;
+  secret: string;
+  members: AgentID[];
+}
+
+/**
+ * Message sent by the leader of a team that has now been merged with another team to inform
+ * the new leader about the current state of the environment.
+ */
+export interface StateMessage {
+  type: MessageType.STATE;
+  parcels: Parcel[];
+  agents: Agent[];
+  visibleAgents: number[];
+}
+
+export interface ParcelUpdateMessage {
+  type: MessageType.PARCEL_UPDATE;
+  newFreeParcels: Parcel[];
+  changedPositionParcels: [ParcelID, Position][];
+  noLongerFreeParcels: ParcelID[];
+}
+
+export interface AgentUpdateMessage {
+  type: MessageType.AGENT_UPDATE;
+  visibleAgents: Agent[];
+}
+
+/**
+ * Message sent by a team leader to a member to request to move in a certain direction.
+ */
+export interface ExecuteMessage {
+  type: MessageType.EXECUTE;
+  direction: Direction;
+}
+
+// ---------------------------------------------------------------------------
+// Serialization and deserialization
+// ---------------------------------------------------------------------------
+
+export function serializeMessage(message: Message): string {
+  switch (message.type) {
+    case MessageType.HELLO: {
+      return JSON.stringify(message);
+    }
+    case MessageType.MERGE_REQUEST: {
+      return JSON.stringify({
+        ...message,
+        members: message.members.map((member) => member.serialize()),
+      });
+    }
+    case MessageType.NEW_TEAM: {
+      return JSON.stringify({
+        ...message,
+        members: message.members.map((member) => member.serialize()),
+      });
+    }
+    case MessageType.STATE: {
+      return JSON.stringify({
+        ...message,
+        parcels: message.parcels.map((parcel) => parcel.serialize()),
+        agents: message.agents.map((agent) => agent.serialize()),
+      });
+    }
+    case MessageType.PARCEL_UPDATE: {
+      return JSON.stringify({
+        type: message.type,
+        newFreeParcels: message.newFreeParcels.map((parcel) => parcel.serialize()),
+        changedPositionParcels: message.changedPositionParcels.map(([parcel, position]) => [
+          parcel.serialize(),
+          position.serialize(),
+        ]),
+        noLongerFreeParcels: message.noLongerFreeParcels.map((parcel) => parcel.serialize()),
+      });
+    }
+    case MessageType.AGENT_UPDATE: {
+      return JSON.stringify({
+        type: message.type,
+        newAgents: message.visibleAgents.map((agent) => agent.serialize()),
+      });
+    }
+    case MessageType.EXECUTE: {
+      return JSON.stringify(message);
+    }
+    default: {
+      // This should never happen
+      throw new Error(`Unknown message: ${message}`);
+    }
+  }
+}
+
+export function deserializeMessage(message: string): Message {
+  const parsedMessage = JSON.parse(message);
+  switch (parsedMessage.type) {
+    case MessageType.HELLO: {
+      return parsedMessage;
+    }
+    case MessageType.MERGE_REQUEST: {
+      return {
+        ...parsedMessage,
+        members: parsedMessage.members.map((member: string) => Agent.deserialize(member)),
+      };
+    }
+    case MessageType.NEW_TEAM: {
+      return {
+        ...parsedMessage,
+        members: parsedMessage.members.map((member: string) => Agent.deserialize(member)),
+      };
+    }
+    case MessageType.STATE: {
+      return {
+        ...parsedMessage,
+        parcels: parsedMessage.parcels.map((parcel: string) => Parcel.deserialize(parcel)),
+        agents: parsedMessage.agents.map((agent: string) => Agent.deserialize(agent)),
+      };
+    }
+    case MessageType.PARCEL_UPDATE: {
+      return {
+        type: parsedMessage.type,
+        newFreeParcels: parsedMessage.newFreeParcels.map((parcel: string) =>
+          Parcel.deserialize(parcel)
+        ),
+        changedPositionParcels: parsedMessage.changedPositionParcels.map(
+          ([parcel, position]: [string, string]) => [
+            Parcel.deserialize(parcel),
+            Position.deserialize(position),
+          ]
+        ),
+        noLongerFreeParcels: parsedMessage.noLongerFreeParcels.map((parcel: string) =>
+          Parcel.deserialize(parcel)
+        ),
+      };
+    }
+    case MessageType.AGENT_UPDATE: {
+      return {
+        type: parsedMessage.type,
+        visibleAgents: parsedMessage.newAgents.map((agent: string) => Agent.deserialize(agent)),
+      };
+    }
+    case MessageType.EXECUTE: {
+      return parsedMessage;
+    }
+    default: {
+      // This should never happen
+      throw new Error(`Unknown message: ${message}`);
+    }
+  }
+}
