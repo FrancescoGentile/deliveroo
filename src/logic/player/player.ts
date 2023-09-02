@@ -50,7 +50,7 @@ export class Player {
     this._beliefs = new BeliefSet(id, position, sensors);
     this._actuators = actuators;
     this._messenger = messenger;
-    this._planner = new Planner();
+    this._planner = new Planner(map, id, position);
 
     if (!process.env.KEY || !process.env.IV) {
       throw new Error('KEY or IV not set');

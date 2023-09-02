@@ -2,17 +2,9 @@
 //
 //
 
-import { HashMap, HashSet, Hashable, Instant, categoricalSample, getRandomInt } from 'src/utils';
+import { HashMap, HashSet, Hashable, Instant, categoricalSample } from 'src/utils';
 import { GraphMap } from '../map';
-import {
-  AgentID,
-  AgentState,
-  GameConfig,
-  Intention,
-  IntentionType,
-  Position,
-  Utility,
-} from '../structs';
+import { AgentID, AgentState, GameConfig, Intention, IntentionType, Position } from '../structs';
 import { BeliefSet } from './beliefs';
 import { AgentPotentialIntentions, JointIntention } from './structs';
 
@@ -29,6 +21,10 @@ class NodeID implements Hashable {
   public hash(): string {
     return this._id;
   }
+
+  public equals(other: NodeID): boolean {
+    return this._id === other._id;
+  }
 }
 
 export class Node {
@@ -42,9 +38,9 @@ export class Node {
 
   public visits: number = 0;
 
-  private readonly _instant: Instant;
+  public readonly instant: Instant;
 
-  public readonly utility: Utility;
+  public utility: number;
 
   private readonly _availablePositions: HashSet<Position>;
 
@@ -65,8 +61,8 @@ export class Node {
   ) {
     this._beliefs = beliefs;
     this._map = map;
-    this._instant = instant;
-    this.utility = Utility.zero(instant);
+    this.instant = instant;
+    this.utility = 0;
     this._availablePositions = availablePositions;
     this.agentsStates = states;
     this._agentsPotentialIntentions = this._getPotentialIntentions();
@@ -93,22 +89,27 @@ export class Node {
     return child;
   }
 
-  public backpropagate(childUtility: Utility, child: Node | null): void {
+  // eslint-disable-next-line class-methods-use-this
+  public getBestSuccessor(): [JointIntention, Node] {
+    throw new Error('Not implemented.');
+  }
+
+  public backpropagate(childUtility: number, child: Node | null): void {
     let utility = childUtility;
     for (const id of this._agentsPotentialIntentions.keys()) {
       const state = this.agentsStates.get(id)!;
 
       if (state.intention?.type === IntentionType.PUTDOWN) {
         const reward = state.carriedParcels.reduce(
-          (acc, parcel) => acc + parcel.value.getValueByInstant(this._instant),
+          (acc, parcel) => acc + parcel.value.getValueByInstant(this.instant),
           0
         );
 
-        utility = utility.newWith(reward, state.carriedParcels, this._instant);
+        utility += reward;
       }
     }
 
-    this.utility.add(utility);
+    this.utility += utility;
 
     this.visits += 1;
 
@@ -123,7 +124,7 @@ export class Node {
           idx = intentions.length - 1;
         }
 
-        utilities[idx].add(utility);
+        utilities[idx] += utility;
         visits[idx] += 1;
       }
     }
@@ -144,11 +145,11 @@ export class Node {
     const agentsPotentialIntentions: HashMap<AgentID, [Intention, number][]> = new HashMap();
     // add putdown intentions to agents that have not just executed a putdown
     for (const [id, state] of freeAgents) {
-      if (state.intention!.type !== IntentionType.PUTDOWN) {
+      if (state.intention!.type !== IntentionType.PUTDOWN && state.carriedParcels.length > 0) {
         const distance = this._map.distanceToDelivery(state.position);
         const { movementDuration } = GameConfig.getInstance();
         const timeToArrive = movementDuration.multiply(distance);
-        const arrivalTime = this._instant.add(timeToArrive);
+        const arrivalTime = this.instant.add(timeToArrive);
 
         let value = 0;
         for (const parcel of state.carriedParcels) {
@@ -194,19 +195,28 @@ export class Node {
     }
 
     const result = new HashMap<AgentID, AgentPotentialIntentions>();
+    let numAllNulls = 0;
     for (const [id, intentions] of agentsPotentialIntentions.entries()) {
-      if (intentions.length === 0) {
-        // if no intentions were assigned to an agent (this happens when there are more agents than
-        // available positions), we do not consider it since the only possible intention is to wait
-        // indefinitely
-        continue;
+      intentions.sort((a, b) => b[1] - a[1]);
+
+      const state = this.agentsStates.get(id)!;
+      if (state.carriedParcels.length === 0 || state.intention!.type === IntentionType.PUTDOWN) {
+        intentions.push([null!, 0]);
+
+        if (intentions.length === 1) {
+          numAllNulls += 1;
+        }
       }
 
       result.set(id, {
-        intentions: [intentions[0][0], ...intentions.slice(1).map(([i]) => i), null],
+        intentions: intentions.map(([intention]) => intention),
         utilities: [],
         visits: [],
       });
+    }
+
+    if (numAllNulls === result.size) {
+      result.clear();
     }
 
     return result;
@@ -222,15 +232,17 @@ export class Node {
 
         const { movementDuration } = GameConfig.getInstance();
         const timeToArrive = movementDuration.multiply(distance);
-        const arrivalTime = this._instant.add(timeToArrive);
+        const arrivalTime = this.instant.add(timeToArrive);
 
         let value = 0;
         for (const parcel of this._beliefs.getParcelsByPosition(pickupPosition)) {
           value += parcel.value.getValueByInstant(arrivalTime);
         }
 
-        for (const parcel of state.carriedParcels) {
-          value += parcel.value.getValueByInstant(arrivalTime);
+        if (state.intention!.type !== IntentionType.PUTDOWN) {
+          for (const parcel of state.carriedParcels) {
+            value += parcel.value.getValueByInstant(arrivalTime);
+          }
         }
 
         return [id, value] as [AgentID, number];
@@ -261,23 +273,18 @@ export class Node {
     for (const [id, potentialIntentions] of this._agentsPotentialIntentions.entries()) {
       const { intentions, utilities, visits } = potentialIntentions;
 
-      if (intentions.length === 0) {
-        nextIntentions.push([id, null] as [AgentID, Intention | null]);
-      } else if (utilities.length < intentions.length) {
+      if (utilities.length < intentions.length) {
         const intention = intentions[utilities.length];
         if (intention === null) {
           numberNullIntentions += 1;
         }
 
-        utilities.push(Utility.zero(this._instant));
+        utilities.push(0);
         visits.push(0);
 
         nextIntentions.push([id, intention] as [AgentID, Intention]);
-        continue;
       } else {
-        const weights = utilities.map(
-          (utility, idx) => utility.getValueByInstant(this._instant) / visits[idx]
-        );
+        const weights = utilities.map((utility, idx) => utility / visits[idx]);
         const [_, intention] = categoricalSample(weights, intentions);
 
         if (intention === null) {
@@ -290,25 +297,26 @@ export class Node {
 
     if (numberNullIntentions === nextIntentions.length) {
       // we cannot have all agents waiting indefinitely
-      // so we select a random agent and sample from its intentions
-      const agentIdx = getRandomInt(0, nextIntentions.length);
-      const { intentions, utilities, visits } = this._agentsPotentialIntentions.get(
-        nextIntentions[agentIdx][0]
-      )!;
 
-      if (visits[visits.length - 1] === 0) {
-        // the null intention was just added, so we remove it
-        visits.pop();
-        utilities.pop();
-        intentions.pop();
+      for (const [agentIdx, [id]] of nextIntentions.entries()) {
+        const { intentions, utilities, visits } = this._agentsPotentialIntentions.get(id)!;
+
+        if (intentions.length === 1) {
+          // this agent can only wait indefinitely
+          continue;
+        }
+
+        const weights = utilities.slice(0, -1).map((utility, idx) => utility / visits[idx]);
+        const [_, intention] = categoricalSample(weights, intentions);
+
+        if (visits[visits.length - 1] === 0) {
+          // the null intention was just added, so we remove it
+          visits.pop();
+          utilities.pop();
+        }
+
+        nextIntentions[agentIdx][1] = intention;
       }
-
-      const weights = utilities.map(
-        (utility, idx) => utility.getValueByInstant(this._instant) / visits[idx]
-      );
-      const [_, intention] = categoricalSample(weights, intentions);
-
-      nextIntentions[agentIdx][1] = intention;
     }
 
     return new JointIntention(nextIntentions);
@@ -324,8 +332,8 @@ export class Node {
       if (state.terminated) {
         // for this agent we have just chosen a new intention
 
-        const intention = jointIntention.get(id)!;
-        if (intention === null) {
+        const intention = jointIntention.get(id);
+        if (intention === null || intention === undefined) {
           // the agent is waiting indefinitely
           continue;
         }
@@ -364,7 +372,7 @@ export class Node {
         let carriedParcels =
           state.intention!.type === IntentionType.PUTDOWN ? [] : state.carriedParcels;
 
-        if (intention === null) {
+        if (intention === null || intention === undefined) {
           // the agent is waiting indefinitely
           newAgentsStates.set(
             id,
@@ -410,8 +418,6 @@ export class Node {
               new AgentState(newPosition, newNextPosition, carriedParcels, intention, false)
             );
           }
-
-          throw new Error('Not implemented');
         }
       } else if (state.intention !== null) {
         if (minAgentIDS.has(id)) {
@@ -468,7 +474,7 @@ export class Node {
     return new Node(
       this._beliefs,
       this._map,
-      Instant.fromMilliseconds(this._instant.milliseconds + minTimeToArrive),
+      Instant.fromMilliseconds(this.instant.milliseconds + minTimeToArrive),
       newAvailablePositions,
       newAgentsStates
     );

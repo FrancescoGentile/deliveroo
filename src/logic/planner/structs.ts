@@ -3,13 +3,13 @@
 //
 
 import { HashMap, Hashable } from 'src/utils';
-import { AgentID, Intention, Utility } from '../structs';
+import { AgentID, Intention } from '../structs';
 
 export interface AgentPotentialIntentions {
   // the potential intentions that the agent can execute
-  intentions: [Intention, ...Intention[], null];
+  intentions: (Intention | null)[];
   // the utilities that the agent can achieve from executing the intentions
-  utilities: Utility[];
+  utilities: number[];
   // the number of times the agent has tried each intention
   visits: number[];
 }

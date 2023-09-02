@@ -2,7 +2,7 @@
 //
 //
 
-import { HashMap } from 'src/utils';
+import { HashMap, HashSet } from 'src/utils';
 import { Agent, Parcel, ParcelID, Position } from '../structs';
 
 export class BeliefSet {
@@ -13,6 +13,16 @@ export class BeliefSet {
   public constructor() {
     this._freeParcels = new HashMap();
     this._positionToParcels = new HashMap();
+  }
+
+  public get availablePositions(): HashSet<Position> {
+    const positions = new HashSet<Position>();
+
+    for (const parcel of this.freeParcels) {
+      positions.add(parcel.position);
+    }
+
+    return positions;
   }
 
   public get freeParcels(): Parcel[] {
@@ -35,24 +45,17 @@ export class BeliefSet {
     return this._positionToParcels.get(position)?.map((id) => this._freeParcels.get(id)!) ?? [];
   }
 
-  public updateState(parcels: Parcel[], _visibleAgents: Agent[]): boolean {
-    let isChanged = false;
-
+  public updateState(parcels: Parcel[], _visibleAgents: Agent[]) {
     for (const parcel of parcels) {
       const oldParcel = this._freeParcels.get(parcel.id);
       if (oldParcel === undefined) {
         this._freeParcels.set(parcel.id, parcel);
-        isChanged = true;
       } else if (!oldParcel.position.equals(parcel.position)) {
         this._changeParcelPosition(parcel.id, parcel.position);
-        isChanged = true;
       } else if (parcel.agentID !== null) {
         this._removeParcel(parcel.id);
-        isChanged = true;
       }
     }
-
-    return isChanged;
   }
 
   public updateParcels(
