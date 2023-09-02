@@ -4,7 +4,7 @@
 
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { UndirectedGraph } from 'graphology';
+import UndirectedGraph from 'graphology';
 import * as workerpool from 'workerpool';
 
 import { Tile } from 'src/logic/structs';
@@ -30,7 +30,9 @@ export async function buildGraph(tiles: Tile[]): Promise<Graph> {
   graph.forEachNode((node, tile) => {
     for (const adjacent of tile.position.adjacent()) {
       if (graph.hasNode(adjacent.hash())) {
-        graph.addEdge(node, adjacent.hash(), { weight: 1 });
+        if (!graph.hasUndirectedEdge(node, adjacent.hash())) {
+          graph.addUndirectedEdge(node, adjacent.hash(), { weight: 1 });
+        }
       }
     }
   });
@@ -56,7 +58,9 @@ export async function buildGraph(tiles: Tile[]): Promise<Graph> {
     const nodes = component.nodes();
     for (const [i, node] of nodes.entries()) {
       for (const [j, neighbor] of nodes.entries()) {
-        graph.addEdge(node, neighbor, { weight: distance[i][j] });
+        if (!component.hasUndirectedEdge(node, neighbor)) {
+          component.addUndirectedEdge(node, neighbor, { weight: distance[i][j] });
+        }
       }
     }
   }
@@ -85,12 +89,20 @@ function findConnectedComponents(graph: Graph): Graph[] {
 
       while (queue.length > 0) {
         const current = queue.pop()!;
-        component.addNode(current, graph.getNodeAttributes(current)!);
-
+        if (!component.hasNode(current)) {
+          component.addNode(current, graph.getNodeAttributes(current)!);
+        }
         graph.forEachNeighbor(current, (neighbor) => {
           if (!visited.has(neighbor)) {
             visited.add(neighbor);
-            component.addEdge(current, neighbor, graph.getEdgeAttributes(current, neighbor)!);
+            component.addNode(neighbor, graph.getNodeAttributes(neighbor)!);
+            if (!component.hasUndirectedEdge(current, neighbor)) {
+              component.addUndirectedEdge(
+                current,
+                neighbor,
+                graph.getEdgeAttributes(current, neighbor)!
+              );
+            }
             queue.push(neighbor);
           }
         });
@@ -107,13 +119,11 @@ function computeAdjacencyMatrix(graph: Graph): number[][] {
 
   graph.forEachNode((node) => {
     const row: number[] = [];
-
     graph.forEachNode((neighbor) => {
-      row.push(graph.hasEdge(node, neighbor) ? 1 : 0);
+      row.push(graph.hasUndirectedEdge(node, neighbor) ? 1 : 0);
     });
 
     matrix.push(row);
   });
-
   return matrix;
 }

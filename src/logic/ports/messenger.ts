@@ -8,7 +8,6 @@ import {
   HelloMessage,
   MergeRequestMessage,
   NewTeamMessage,
-  StateMessage,
   ParcelUpdateMessage,
   AgentUpdateMessage,
 } from 'src/logic/structs';
@@ -22,12 +21,12 @@ export interface Messenger {
   shoutHello(message: HelloMessage): Promise<void>;
 
   /**
-   * Sends a merge request to the leader of the given team.
+   * Sends a merge request to the leader of the given team together with the information about the current state.
    * @param id The ID of the leader of the team to send the merge request to.
    * @param message The merge request to send.
-   * @returns Whether the merge request was accepted.
+   * @returns Whether the merge request was received.
    */
-  askForMerge(id: AgentID, message: MergeRequestMessage): Promise<boolean>;
+  askForMerge(id: AgentID, message: MergeRequestMessage): Promise<void>;
 
   /**
    * Informs an agent about the new team it has been assigned to.
@@ -36,14 +35,6 @@ export interface Messenger {
    * @returns Whether the message was received.
    */
   informAboutNewTeam(id: AgentID, message: NewTeamMessage): Promise<void>;
-
-  /**
-   * Informs the leader of the given team about the current state of the environment.
-   * @param id The ID of the leader of the team to inform.
-   * @param message The state message to send.
-   * @returns Whether the message was received.
-   */
-  informAboutState(id: AgentID, message: StateMessage): Promise<void>;
 
   /**
    * Informs the leader of the given team about changes in the environment.
@@ -59,7 +50,7 @@ export interface Messenger {
    * @param message The update message to send.
    * @returns Whether the message was received.
    */
-  informAboutAgentlUpdate(id: AgentID, message: AgentUpdateMessage): Promise<void>;
+  informAboutAgentUpdate(id: AgentID, message: AgentUpdateMessage): Promise<void>;
 
   /**
    * Asks an agent to execute an action.
@@ -83,20 +74,13 @@ export interface Messenger {
    * Event that is triggered when a merge request message is received.
    * @param callback The callback to call when a merge request message is received.
    */
-  onMergeRequestMessage(callback: (id: AgentID, message: MergeRequestMessage) => boolean): void;
+  onMergeRequestMessage(callback: (id: AgentID, message: MergeRequestMessage) => void): void;
 
   /**
    * Event that is triggered when a new team message is received.
    * @param callback The callback to call when a new team message is received.
    */
   onNewTeamMessage(callback: (id: AgentID, message: NewTeamMessage) => void): void;
-
-  /**
-   * Event that is triggered when a state message is received.
-   * @param callback The callback to call when a state message is received.
-   * @returns The callback to call when a state message is received.
-   */
-  onStateMessage(callback: (id: AgentID, message: StateMessage) => void): void;
 
   /**
    * Event that is triggered when an update message is received.

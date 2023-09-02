@@ -20,7 +20,6 @@ import {
   deserializeMessage,
   MergeRequestMessage,
   NewTeamMessage,
-  StateMessage,
   ParcelUpdateMessage,
   AgentUpdateMessage,
   MessageType,
@@ -196,7 +195,7 @@ export class Client implements Actuators, Sensors, Messenger {
 
   public async putdown(parcels: Parcel[] | null): Promise<HashSet<ParcelID>> {
     return new Promise((resolve, _reject) => {
-      const ids = parcels !== null ? parcels.map((parcel) => parcel.id.toString()) : null;
+      const ids = parcels !== null ? parcels.map((parcel) => parcel.id.serialize()) : null;
       this._socket.emit('putdown', ids, (response: any[]) => {
         const putDownParcels: HashSet<ParcelID> = new HashSet<ParcelID>();
         for (const parcel of response) {
@@ -267,30 +266,17 @@ export class Client implements Actuators, Sensors, Messenger {
     });
   }
 
-  public async askForMerge(id: AgentID, message: MergeRequestMessage): Promise<boolean> {
+  public async askForMerge(id: AgentID, message: MergeRequestMessage): Promise<void> {
     return new Promise((resolve, _reject) => {
-      this._socket.emit(
-        'ask',
-        id.toString(),
-        serializeMessage(message),
-        (response: boolean | PromiseLike<boolean>) => {
-          resolve(response);
-        }
-      );
-    });
-  }
-
-  public async informAboutNewTeam(id: AgentID, message: NewTeamMessage): Promise<void> {
-    return new Promise((resolve, _reject) => {
-      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+      this._socket.emit('say', id.serialize(), serializeMessage(message), () => {
         resolve();
       });
     });
   }
 
-  public async informAboutState(id: AgentID, message: StateMessage): Promise<void> {
+  public async informAboutNewTeam(id: AgentID, message: NewTeamMessage): Promise<void> {
     return new Promise((resolve, _reject) => {
-      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+      this._socket.emit('say', id.serialize(), serializeMessage(message), () => {
         resolve();
       });
     });
@@ -298,15 +284,15 @@ export class Client implements Actuators, Sensors, Messenger {
 
   public async informAboutParcelUpdate(id: AgentID, message: ParcelUpdateMessage): Promise<void> {
     return new Promise((resolve, _reject) => {
-      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+      this._socket.emit('say', id.serialize(), serializeMessage(message), () => {
         resolve();
       });
     });
   }
 
-  public async informAboutAgentlUpdate(id: AgentID, message: AgentUpdateMessage): Promise<void> {
+  public async informAboutAgentUpdate(id: AgentID, message: AgentUpdateMessage): Promise<void> {
     return new Promise((resolve, _reject) => {
-      this._socket.emit('ask', id.toString(), serializeMessage(message), (_response: any) => {
+      this._socket.emit('say', id.serialize(), serializeMessage(message), () => {
         resolve();
       });
     });
@@ -316,7 +302,7 @@ export class Client implements Actuators, Sensors, Messenger {
     return new Promise((resolve, _reject) => {
       this._socket.emit(
         'ask',
-        id.toString(),
+        id.serialize(),
         serializeMessage(message),
         (response: boolean | PromiseLike<boolean>) => {
           resolve(response);
@@ -345,14 +331,15 @@ export class Client implements Actuators, Sensors, Messenger {
   }
 
   public async onMergeRequestMessage(
-    callback: (id: AgentID, message: MergeRequestMessage) => boolean
+    callback: (id: AgentID, message: MergeRequestMessage) => void
   ): Promise<void> {
     this._socket.on('msg', (id, _name, msg, reply) => {
+      // Add try catch
       const message = deserializeMessage(msg);
       if (message.type === MessageType.MERGE_REQUEST) {
-        const response = callback(new AgentID(id), message);
+        callback(new AgentID(id), message);
         if (reply) {
-          reply(response);
+          reply();
         }
       }
     });
@@ -372,26 +359,13 @@ export class Client implements Actuators, Sensors, Messenger {
     });
   }
 
-  public async onStateMessage(
-    callback: (id: AgentID, message: StateMessage) => void
-  ): Promise<void> {
-    this._socket.on('msg', (id, _name, msg, reply) => {
-      const message = deserializeMessage(msg);
-      if (message.type === MessageType.STATE) {
-        callback(new AgentID(id), message);
-        if (reply) {
-          reply();
-        }
-      }
-    });
-  }
-
   public async onParcelUpdateMessage(
     callback: (id: AgentID, message: ParcelUpdateMessage) => void
   ): Promise<void> {
     this._socket.on('msg', (id, _name, msg, reply) => {
       const message = deserializeMessage(msg);
       if (message.type === MessageType.PARCEL_UPDATE) {
+        // console.log(msg)
         callback(new AgentID(id), message);
         if (reply) {
           reply();

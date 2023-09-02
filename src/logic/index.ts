@@ -18,7 +18,6 @@ export async function startPlayer(
     sensors.getID(),
     sensors.getPosition(),
   ]);
-
   GameConfig.configure(config);
 
   const map = await GraphMap.new(tiles);
