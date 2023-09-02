@@ -20,17 +20,17 @@ import { HashMap, HashSet } from 'src/utils';
 export class BeliefSet {
   public position: Position;
 
-  private readonly _team: HashSet<AgentID> = new HashSet();
+  public readonly team: HashSet<AgentID> = new HashSet();
 
   private readonly _freeParcels: HashMap<ParcelID, Parcel> = new HashMap();
 
   private readonly _visibleAgents: HashMap<AgentID, Agent> = new HashMap();
 
-  private readonly _broker: EventEmitter = new EventEmitter();
+  public readonly broker: EventEmitter = new EventEmitter();
 
   public constructor(id: AgentID, position: Position, sensors: Sensors) {
     this.position = position;
-    this._team.add(id);
+    this.team.add(id);
 
     // add event handlers
     sensors.onParcelSensing(this._onParcelSensing.bind(this));
@@ -38,11 +38,12 @@ export class BeliefSet {
     sensors.onPositionUpdate(this._onPositionUpdate.bind(this));
   }
 
-  public set team(team: AgentID[]) {
-    this._team.clear();
-    for (const agentID of team) {
-      this._team.add(agentID);
-    }
+  public get freeParcels(): HashMap<ParcelID, Parcel> {
+    return this._freeParcels;
+  }
+
+  public get visibleAgents(): HashMap<AgentID, Agent> {
+    return this._visibleAgents;
   }
 
   // ---------------------------------------------------------------------------
@@ -95,7 +96,7 @@ export class BeliefSet {
           newFreeParcels.push(parcel);
           this._freeParcels.set(parcel.id, parcel);
         }
-      } else if (this._freeParcels.has(parcel.id) && !this._team.has(parcel.agentID)) {
+      } else if (this._freeParcels.has(parcel.id) && !this.team.has(parcel.agentID)) {
         // the parcel is no longer free and it has been taken by an agent not in our team
         noLongerFreeParcels.push(parcel.id);
         this._freeParcels.delete(parcel.id);
@@ -113,7 +114,7 @@ export class BeliefSet {
         changedPositionParcels,
         noLongerFreeParcels,
       };
-      this._broker.emit('oarcel-change', message);
+      this.broker.emit('parcel-change', message);
     }
   }
 
@@ -142,7 +143,7 @@ export class BeliefSet {
         type: MessageType.AGENT_UPDATE,
         visibleAgents: agents,
       };
-      this._broker.emit('agent-change', message);
+      this.broker.emit('agent-change', message);
     }
   }
 
@@ -151,10 +152,10 @@ export class BeliefSet {
   // ---------------------------------------------------------------------------
 
   public onParcelChange(callback: (message: ParcelUpdateMessage) => void) {
-    this._broker.on('parcel-change', callback);
+    this.broker.on('parcel-change', callback);
   }
 
   public onAgentChange(callback: (message: AgentUpdateMessage) => void) {
-    this._broker.on('agent-change', callback);
+    this.broker.on('agent-change', callback);
   }
 }

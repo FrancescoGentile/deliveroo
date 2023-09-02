@@ -16,11 +16,12 @@ export enum MessageType {
   EXECUTE = 'execute',
 }
 
+// TODO: StateMessage inside MergeRequestMessage
+
 export type Message =
   | HelloMessage
   | MergeRequestMessage
   | NewTeamMessage
-  | StateMessage
   | ParcelUpdateMessage
   | AgentUpdateMessage
   | ExecuteMessage;
@@ -51,27 +52,18 @@ export interface MergeRequestMessage {
   type: MessageType.MERGE_REQUEST;
   secret: string;
   members: AgentID[];
+  parcels: Parcel[];
+  visibleAgents: Agent[];
 }
 
 /**
- * Message sent by the new lader of a merged team to all the members of the merged teams to inform them
+ * Message sent by the new leader of a merged team to all the members of the merged teams to inform them
  * of the creation of the new team and of the new team members.
  */
 export interface NewTeamMessage {
   type: MessageType.NEW_TEAM;
   secret: string;
   members: AgentID[];
-}
-
-/**
- * Message sent by the leader of a team that has now been merged with another team to inform
- * the new leader about the current state of the environment.
- */
-export interface StateMessage {
-  type: MessageType.STATE;
-  parcels: Parcel[];
-  agents: Agent[];
-  visibleAgents: number[];
 }
 
 export interface ParcelUpdateMessage {
@@ -86,6 +78,8 @@ export interface AgentUpdateMessage {
   visibleAgents: Agent[];
 }
 
+// DIfference between NextIntention (planner gives the player the next intention but the player first finishes its current action)
+// and ExxecuteIntention (the player drops the current action and executes the new one)
 /**
  * Message sent by a team leader to a member to request to move in a certain direction.
  */
@@ -107,19 +101,14 @@ export function serializeMessage(message: Message): string {
       return JSON.stringify({
         ...message,
         members: message.members.map((member) => member.serialize()),
+        parcels: message.parcels.map((parcel) => parcel.serialize()),
+        visibleAgents: message.visibleAgents.map((agent) => agent.serialize()),
       });
     }
     case MessageType.NEW_TEAM: {
       return JSON.stringify({
         ...message,
         members: message.members.map((member) => member.serialize()),
-      });
-    }
-    case MessageType.STATE: {
-      return JSON.stringify({
-        ...message,
-        parcels: message.parcels.map((parcel) => parcel.serialize()),
-        agents: message.agents.map((agent) => agent.serialize()),
       });
     }
     case MessageType.PARCEL_UPDATE: {
@@ -158,13 +147,15 @@ export function deserializeMessage(message: string): Message {
     case MessageType.MERGE_REQUEST: {
       return {
         ...parsedMessage,
-        members: parsedMessage.members.map((member: string) => Agent.deserialize(member)),
+        members: parsedMessage.members.map((member: string) => AgentID.deserialize(member)),
+        parcels: parsedMessage.parcels.map((parcel: string) => Parcel.deserialize(parcel)),
+        visibleAgents: parsedMessage.visibleAgents.map((agent: string) => Agent.deserialize(agent)),
       };
     }
     case MessageType.NEW_TEAM: {
       return {
         ...parsedMessage,
-        members: parsedMessage.members.map((member: string) => Agent.deserialize(member)),
+        members: parsedMessage.members.map((member: string) => AgentID.deserialize(member)),
       };
     }
     case MessageType.STATE: {

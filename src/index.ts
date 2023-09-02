@@ -11,8 +11,8 @@ async function main() {
   dotenv.config();
 
   const [sensors, actuators, messenger] = await initInfrastructure();
-  const player = startPlayer(sensors, actuators, messenger);
-  player.start();
+  const player = await startPlayer(sensors, actuators, messenger);
+  await player.start();
 }
 
 main()
