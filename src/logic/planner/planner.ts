@@ -4,7 +4,16 @@
 
 import EventEmitter from 'eventemitter3';
 import { Duration, HashMap, Instant } from 'src/utils';
-import { Agent, AgentID, AgentState, Intention, Parcel, Position } from '../structs';
+import {
+  Agent,
+  AgentID,
+  AgentState,
+  GameConfig,
+  Intention,
+  IntentionType,
+  Parcel,
+  Position,
+} from '../structs';
 import { BeliefSet } from './beliefs';
 import { Node } from './node';
 import { GraphMap } from '../map';
@@ -18,8 +27,6 @@ export class Planner {
   private readonly _emitter: EventEmitter;
 
   private _root: Node | null = null;
-
-  private _bestChild: Node | null = null;
 
   private _nextIteration?: NodeJS.Immediate;
 
@@ -78,13 +85,68 @@ export class Planner {
   // Public methods
   // -----------------------------------------------------------------------------------------------
 
-  // eslint-disable-next-line class-methods-use-this
-  public mergeTeam(
+  public mergeTeams(
     _newMembers: [AgentID, AgentState][],
     parcels: Parcel[],
     visibleAgents: Agent[]
   ): void {
+    if (this._root === null) {
+      throw new Error('The planner is not running.');
+    }
+
     this._beliefs.updateState(parcels, visibleAgents);
+
+    const newAgentsStates = new HashMap<AgentID, AgentState>();
+    const askForPosition = [];
+    const instant = Instant.now().add(this._duration);
+
+    const difference = instant.subtract(this._root.instant);
+    const { movementDuration } = GameConfig.getInstance();
+
+    for (const [id, state] of this._root.agentsStates.entries()) {
+      if (state.intention === null) {
+        askForPosition.push(id);
+        continue;
+      }
+
+      if (difference.milliseconds >= 0) {
+        if (state.terminated) {
+          newAgentsStates.set(
+            id,
+            new AgentState(
+              state.position,
+              null,
+              state.intention.type === IntentionType.PUTDOWN ? [] : state.carriedParcels,
+              Intention.move(state.position),
+              true
+            )
+          );
+        } else {
+          const distance =
+            this._map.distance(state.position, state.intention.position) +
+            state.nextPosition!.manhattanDistance(state.position);
+          const timeToArrive = movementDuration.multiply(distance);
+
+          if (difference.milliseconds >= timeToArrive.milliseconds) {
+            newAgentsStates.set(
+              id,
+              new AgentState(
+                state.intention.position,
+                null,
+                state.intention.type === IntentionType.PUTDOWN ? [] : state.carriedParcels,
+                Intention.move(state.intention.position),
+                true
+              )
+            );
+          } else {
+            // TODO
+          }
+        }
+      } else {
+        // TODO
+      }
+    }
+
     throw new Error('Not implemented');
   }
 

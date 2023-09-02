@@ -89,9 +89,25 @@ export class Node {
     return child;
   }
 
-  // eslint-disable-next-line class-methods-use-this
   public getBestSuccessor(): [JointIntention, Node] {
-    throw new Error('Not implemented.');
+    let bestUtility = Number.NEGATIVE_INFINITY;
+    let bestChild: Node | null = null;
+    let bestJointIntention: JointIntention | null = null;
+
+    for (const [jointIntention, child] of this._jointToChild.entries()) {
+      const utility = child.utility / child.visits;
+      if (utility > bestUtility) {
+        bestUtility = utility;
+        bestChild = child;
+        bestJointIntention = jointIntention;
+      }
+    }
+
+    if (bestChild === null || bestJointIntention === null) {
+      throw new Error('Could not find best successor.');
+    }
+
+    return [bestJointIntention, bestChild];
   }
 
   public backpropagate(childUtility: number, child: Node | null): void {

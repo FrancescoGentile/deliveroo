@@ -70,8 +70,8 @@ export class Player {
     this._messenger.onParcelUpdateMessage(this._onParcelUpdateMessage.bind(this));
     this._messenger.onAgentUpdateMessage(this._onAgentUpdateMessage.bind(this));
 
-    this._beliefs.broker.on('parcel-change', this.informParcelUpdate.bind(this));
-    this._beliefs.broker.on('agent-change', this.informAgentUpdate.bind(this));
+    this._beliefs.onParcelChange(this.informParcelUpdate.bind(this));
+    this._beliefs.onAgentChange(this.informAgentUpdate.bind(this));
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -127,7 +127,7 @@ export class Player {
       });
     }
 
-    this._planner.mergeTeam(message.members, message.parcels, message.visibleAgents);
+    this._planner.mergeTeams(message.members, message.parcels, message.visibleAgents);
   }
 
   private _onNewTeamMessage(id: AgentID, message: NewTeamMessage): void {
@@ -136,9 +136,9 @@ export class Player {
     }
 
     this._beliefs.team.clear();
-    message.members.forEach((member) => {
-      this._beliefs.team.add(member);
-    });
+    for (const memberID of message.members) {
+      this._beliefs.team.add(memberID);
+    }
   }
 
   private _onParcelUpdateMessage(id: AgentID, message: ParcelUpdateMessage): void {

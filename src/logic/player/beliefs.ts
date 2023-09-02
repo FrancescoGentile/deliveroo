@@ -26,7 +26,7 @@ export class BeliefSet {
 
   private readonly _visibleAgents: HashMap<AgentID, Agent> = new HashMap();
 
-  public readonly broker: EventEmitter = new EventEmitter();
+  private readonly _broker: EventEmitter = new EventEmitter();
 
   public constructor(id: AgentID, position: Position, sensors: Sensors) {
     this.position = position;
@@ -114,7 +114,7 @@ export class BeliefSet {
         changedPositionParcels,
         noLongerFreeParcels,
       };
-      this.broker.emit('parcel-change', message);
+      this._broker.emit('parcel-change', message);
     }
   }
 
@@ -143,7 +143,7 @@ export class BeliefSet {
         type: MessageType.AGENT_UPDATE,
         visibleAgents: agents,
       };
-      this.broker.emit('agent-change', message);
+      this._broker.emit('agent-change', message);
     }
   }
 
@@ -152,10 +152,10 @@ export class BeliefSet {
   // ---------------------------------------------------------------------------
 
   public onParcelChange(callback: (message: ParcelUpdateMessage) => void) {
-    this.broker.on('parcel-change', callback);
+    this._broker.on('parcel-change', callback);
   }
 
   public onAgentChange(callback: (message: AgentUpdateMessage) => void) {
-    this.broker.on('agent-change', callback);
+    this._broker.on('agent-change', callback);
   }
 }
