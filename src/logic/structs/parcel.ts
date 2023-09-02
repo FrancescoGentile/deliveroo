@@ -47,7 +47,7 @@ export class Parcel {
   public constructor(
     public readonly id: ParcelID,
     public readonly value: DecayingValue,
-    public readonly position: Position,
+    public position: Position,
     public readonly agentID: AgentID | null
   ) {}
 

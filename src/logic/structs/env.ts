@@ -48,10 +48,18 @@ export class Position implements Hashable {
         return new Position(this.row - 1, this.column);
       case Direction.RIGHT:
         return new Position(this.row + 1, this.column);
+      case Direction.NONE:
+        return new Position(this.row, this.column);
       default:
         // this should never happen
         throw new Error(`Unknown direction: ${direction}`);
     }
+  }
+
+  public interpolate(other: Position, t: number): Position {
+    const row = this.row + t * (other.row - this.row);
+    const column = this.column + t * (other.column - this.column);
+    return new Position(row, column);
   }
 
   /**

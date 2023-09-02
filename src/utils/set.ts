@@ -31,6 +31,15 @@ export class HashSet<V extends Hashable> {
     this._map.clear();
   }
 
+  public clone(): HashSet<V> {
+    const clone = new HashSet<V>();
+    for (const value of this.values()) {
+      clone.add(value);
+    }
+
+    return clone;
+  }
+
   public values(): IterableIterator<V> {
     return this._map.values();
   }

@@ -73,3 +73,24 @@ export function sleep(duration: Duration): Promise<void> {
   // eslint-disable-next-line no-promise-executor-return
   return new Promise((resolve) => setTimeout(resolve, duration.milliseconds));
 }
+
+/**
+ * Returns a random element from the given array.
+ * @param weights The weights of the elements.
+ * @param values The elements.
+ * @returns The index and the value of the random element.
+ */
+export function categoricalSample<T>(weights: number[], values: T[]): [number, T] {
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const random = Math.random() * totalWeight;
+
+  let i = 0;
+  let w = weights[i];
+
+  while (w < random) {
+    i += 1;
+    w += weights[i];
+  }
+
+  return [i, values[i]];
+}
