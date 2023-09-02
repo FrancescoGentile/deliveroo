@@ -3,8 +3,10 @@
 //
 
 import { Agent, AgentID } from './agent';
-import { Direction, Position } from './env';
+import { Position } from './env';
+import { Intention } from './intentions';
 import { Parcel, ParcelID } from './parcel';
+import { AgentState } from './state';
 
 export enum MessageType {
   HELLO = 'hello',
@@ -51,7 +53,7 @@ export interface HelloMessage {
 export interface MergeRequestMessage {
   type: MessageType.MERGE_REQUEST;
   secret: string;
-  members: AgentID[];
+  members: [AgentID, AgentState][];
   parcels: Parcel[];
   visibleAgents: Agent[];
 }
@@ -78,14 +80,10 @@ export interface AgentUpdateMessage {
   visibleAgents: Agent[];
 }
 
-// DIfference between NextIntention (planner gives the player the next intention but the player first finishes its current action)
-// and ExxecuteIntention (the player drops the current action and executes the new one)
-/**
- * Message sent by a team leader to a member to request to move in a certain direction.
- */
 export interface ExecuteMessage {
   type: MessageType.EXECUTE;
-  direction: Direction;
+  newIntention: Intention | null;
+  nextIntention: Intention | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +98,7 @@ export function serializeMessage(message: Message): string {
     case MessageType.MERGE_REQUEST: {
       return JSON.stringify({
         ...message,
-        members: message.members.map((member) => member.serialize()),
+        members: message.members.map(([id, state]) => [id.serialize(), state.serialize()]),
         parcels: message.parcels.map((parcel) => parcel.serialize()),
         visibleAgents: message.visibleAgents.map((agent) => agent.serialize()),
       });
@@ -129,7 +127,11 @@ export function serializeMessage(message: Message): string {
       });
     }
     case MessageType.EXECUTE: {
-      return JSON.stringify(message);
+      return JSON.stringify({
+        type: message.type,
+        newIntention: message.newIntention?.serialize() ?? null,
+        nextIntention: message.nextIntention?.serialize() ?? null,
+      });
     }
     default: {
       // This should never happen
@@ -147,7 +149,10 @@ export function deserializeMessage(message: string): Message {
     case MessageType.MERGE_REQUEST: {
       return {
         ...parsedMessage,
-        members: parsedMessage.members.map((member: string) => AgentID.deserialize(member)),
+        members: parsedMessage.members.map(([id, state]: [string, string]) => [
+          AgentID.deserialize(id),
+          AgentState.deserialize(state),
+        ]),
         parcels: parsedMessage.parcels.map((parcel: string) => Parcel.deserialize(parcel)),
         visibleAgents: parsedMessage.visibleAgents.map((agent: string) => Agent.deserialize(agent)),
       };
@@ -189,7 +194,15 @@ export function deserializeMessage(message: string): Message {
       };
     }
     case MessageType.EXECUTE: {
-      return parsedMessage;
+      return {
+        type: parsedMessage.type,
+        newIntention: parsedMessage.newIntention
+          ? Intention.deserialize(parsedMessage.newIntention)
+          : null,
+        nextIntention: parsedMessage.nextIntention
+          ? Intention.deserialize(parsedMessage.nextIntention)
+          : null,
+      };
     }
     default: {
       // This should never happen

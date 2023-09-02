@@ -4,9 +4,17 @@
 
 import { HashMap, HashSet, Hashable, Instant, categoricalSample, getRandomInt } from 'src/utils';
 import { GraphMap } from '../map';
-import { AgentID, GameConfig, Intention, IntentionType, Position, Utility } from '../structs';
+import {
+  AgentID,
+  AgentState,
+  GameConfig,
+  Intention,
+  IntentionType,
+  Position,
+  Utility,
+} from '../structs';
 import { BeliefSet } from './beliefs';
-import { AgentPotentialIntentions, AgentState, JointIntention } from './structs';
+import { AgentPotentialIntentions, JointIntention } from './structs';
 
 class NodeID implements Hashable {
   private static _nextID: number = 0;
@@ -358,13 +366,10 @@ export class Node {
 
         if (intention === null) {
           // the agent is waiting indefinitely
-          newAgentsStates.set(id, {
-            position: state.position,
-            nextPosition: null,
-            carriedParcels,
-            intention: null,
-            terminated: false,
-          });
+          newAgentsStates.set(
+            id,
+            new AgentState(state.position, null, carriedParcels, null, false)
+          );
         } else {
           if (intention.type === IntentionType.PICKUP) {
             newAvailablePositions.delete(intention.position);
@@ -379,13 +384,10 @@ export class Node {
               ];
             }
 
-            newAgentsStates.set(id, {
-              position: intention.position,
-              nextPosition: null,
-              carriedParcels,
-              intention,
-              terminated: true,
-            });
+            newAgentsStates.set(
+              id,
+              new AgentState(intention.position, null, carriedParcels, intention, true)
+            );
           } else {
             const nsteps = Math.floor(minTimeToArrive / movementDuration.milliseconds);
             const newFromPosition = this._map.computePosition(
@@ -403,13 +405,10 @@ export class Node {
             const percentage = offset / movementDuration.milliseconds;
             const newPosition = newFromPosition.interpolate(newNextPosition, percentage);
 
-            newAgentsStates.set(id, {
-              position: newPosition,
-              nextPosition: newNextPosition,
-              carriedParcels,
-              intention,
-              terminated: false,
-            });
+            newAgentsStates.set(
+              id,
+              new AgentState(newPosition, newNextPosition, carriedParcels, intention, false)
+            );
           }
 
           throw new Error('Not implemented');
@@ -425,13 +424,10 @@ export class Node {
             ];
           }
 
-          newAgentsStates.set(id, {
-            position: state.intention.position,
-            nextPosition: null,
-            carriedParcels,
-            intention: state.intention,
-            terminated: true,
-          });
+          newAgentsStates.set(
+            id,
+            new AgentState(state.intention.position, null, carriedParcels, state.intention, true)
+          );
         } else {
           const toNext = state.position.manhattanDistance(state.nextPosition!);
           const timeRemaining = minTimeToArrive - toNext * movementDuration.milliseconds;
@@ -451,13 +447,16 @@ export class Node {
           const percentage = offset / movementDuration.milliseconds;
           const newPosition = newFromPosition.interpolate(newNextPosition, percentage);
 
-          newAgentsStates.set(id, {
-            position: newPosition,
-            nextPosition: newNextPosition,
-            carriedParcels: state.carriedParcels,
-            intention: state.intention,
-            terminated: false,
-          });
+          newAgentsStates.set(
+            id,
+            new AgentState(
+              newPosition,
+              newNextPosition,
+              state.carriedParcels,
+              state.intention,
+              false
+            )
+          );
         }
       } else {
         // the agent is waiting indefinitely

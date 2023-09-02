@@ -37,4 +37,16 @@ export class Intention implements Hashable {
   public toString(): string {
     return JSON.stringify(this, null, 2);
   }
+
+  public serialize(): string {
+    return JSON.stringify({
+      type: this.type,
+      position: this.position.serialize(),
+    });
+  }
+
+  public static deserialize(serialized: string): Intention {
+    const parsed = JSON.parse(serialized);
+    return new Intention(parsed.type, Position.deserialize(parsed.position));
+  }
 }

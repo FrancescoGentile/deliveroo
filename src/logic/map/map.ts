@@ -28,7 +28,7 @@ export class GraphMap {
    * @throws If no path exists between the two positions.
    */
   public distance(from: Position, to: Position): number {
-    if (!this._graph.hasEdge(from.hash(), to.hash())) {
+    if (!this._graph.hasUndirectedEdge(from.hash(), to.hash())) {
       throw new Error(`No path exists between ${from} and ${to}.`);
     }
 
@@ -62,7 +62,7 @@ export class GraphMap {
    * @returns The next position in the path from the `from` position to the `to` position.
    */
   public getNextPosition(from: Position, to: Position): Position[] {
-    if (!this._graph.hasEdge(from.hash(), to.hash())) {
+    if (!this._graph.hasUndirectedEdge(from.hash(), to.hash())) {
       return [];
     }
 
@@ -99,7 +99,7 @@ export class GraphMap {
 
   public getClosestDeliveryPosition(position: Position): Position {
     const distances = this._deliveryTiles
-      .filter((tile) => this._graph.hasEdge(position.hash(), tile.position.hash()))
+      .filter((tile) => this._graph.hasUndirectedEdge(position.hash(), tile.position.hash()))
       .map((tile) => [tile, this._distance(position, tile.position)] as const);
 
     let minDistance = Number.POSITIVE_INFINITY;

@@ -3,23 +3,7 @@
 //
 
 import { HashMap, Hashable } from 'src/utils';
-import { AgentID, Intention, Parcel, Position, Utility } from '../structs';
-
-export interface AgentState {
-  // this is the agent's current position
-  // if agent is moving, this may be a position between two cells
-  position: Position;
-  // if the agent is moving, the position that it is moving to
-  // if null, the agent is not moving
-  nextPosition: Position | null;
-  // the parcels that the agent is currently carrying
-  carriedParcels: Parcel[];
-  // the intention that the agent is currently executing
-  // if null, the agent should be waiting indefinitely
-  intention: Intention | null;
-  // whether the agent has completed its intention
-  terminated: boolean;
-}
+import { AgentID, Intention, Utility } from '../structs';
 
 export interface AgentPotentialIntentions {
   // the potential intentions that the agent can execute

@@ -95,10 +95,11 @@ export class Player {
     await this._messenger.askForMerge(id, {
       type: MessageType.MERGE_REQUEST,
       secret: this._cryptographer.encrypt(this._id.serialize()),
-      members: [...this._beliefs.team.values()],
-      parcels: [...this._beliefs.freeParcels.values()],
-      visibleAgents: [...this._beliefs.visibleAgents.values()],
+      members: this._planner.agentsStates,
+      parcels: this._planner.freeParcels,
+      visibleAgents: this._planner.visibleAgents,
     });
+    this._planner.stop();
 
     clearInterval(this._helloMessageTimer);
   }
@@ -109,29 +110,24 @@ export class Player {
       return;
     }
 
-    message.members.forEach((member) => {
-      this._beliefs.team.add(member);
-    });
-
-    for (const parcel of message.parcels) {
-      if (!this._beliefs.freeParcels.has(parcel.id)) {
-        this._beliefs.freeParcels.set(parcel.id, parcel);
-      }
+    for (const [memberID] of message.members) {
+      this._beliefs.team.add(memberID);
     }
 
-    for (const agent of message.visibleAgents) {
-      if (!this._beliefs.visibleAgents.has(agent.id)) {
-        this._beliefs.visibleAgents.set(agent.id, agent);
+    const allMembers = [...this._beliefs.team.values()];
+    for (const teamId of allMembers) {
+      if (teamId === this._id) {
+        continue;
       }
-    }
 
-    for (const teamId of this._beliefs.team.values()) {
       await this._messenger.informAboutNewTeam(teamId, {
         type: MessageType.NEW_TEAM,
         secret: this._cryptographer.encrypt(this._id.serialize()),
-        members: [...this._beliefs.team.values()],
+        members: allMembers,
       });
     }
+
+    this._planner.mergeTeam(message.members, message.parcels, message.visibleAgents);
   }
 
   private _onNewTeamMessage(id: AgentID, message: NewTeamMessage): void {
@@ -143,7 +139,6 @@ export class Player {
     message.members.forEach((member) => {
       this._beliefs.team.add(member);
     });
-    // this._planner.stop();
   }
 
   private _onParcelUpdateMessage(id: AgentID, message: ParcelUpdateMessage): void {

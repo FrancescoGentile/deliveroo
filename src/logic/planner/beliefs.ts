@@ -3,7 +3,7 @@
 //
 
 import { HashMap } from 'src/utils';
-import { Parcel, ParcelID, Position } from '../structs';
+import { Agent, Parcel, ParcelID, Position } from '../structs';
 
 export class BeliefSet {
   private readonly _freeParcels: HashMap<ParcelID, Parcel>;
@@ -13,6 +13,15 @@ export class BeliefSet {
   public constructor() {
     this._freeParcels = new HashMap();
     this._positionToParcels = new HashMap();
+  }
+
+  public get freeParcels(): Parcel[] {
+    return [...this._freeParcels.values()];
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  public get visibleAgents(): Agent[] {
+    return [];
   }
 
   /**
@@ -26,7 +35,7 @@ export class BeliefSet {
     return this._positionToParcels.get(position)?.map((id) => this._freeParcels.get(id)!) ?? [];
   }
 
-  public updateState(parcels: Parcel[]): boolean {
+  public updateState(parcels: Parcel[], _visibleAgents: Agent[]): boolean {
     let isChanged = false;
 
     for (const parcel of parcels) {
