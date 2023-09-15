@@ -121,8 +121,8 @@ export class GraphMap {
 
   /**
    * Computes the position `nsteps` steps along the path from `from` to `to`.
-   *
    * If `nsteps` is greater than the length of the path, the final position is returned.
+   *
    * @param from The starting position.
    * @param to The ending position.
    * @param nsteps The number of steps to take along the path.

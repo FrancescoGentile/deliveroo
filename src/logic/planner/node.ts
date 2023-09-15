@@ -361,8 +361,8 @@ export class Node {
         // since the agent has not completed its current intention, it means that it is moving
         // thus nextPosition is not null
         const distance =
-          this._map.distance(state.nextPosition!, state.intention.position) +
-          state.nextPosition!.manhattanDistance(state.position);
+          state.position.manhattanDistance(state.nextPosition!) +
+          this._map.distance(state.nextPosition!, state.intention.position);
 
         timeToArrive = movementDuration.multiply(distance);
       } else {
@@ -452,33 +452,51 @@ export class Node {
           );
         } else {
           const toNext = state.position.manhattanDistance(state.nextPosition!);
-          const timeRemaining = minTimeToArrive - toNext * movementDuration.milliseconds;
+          if (toNext >= minTimeToArrive) {
+            const newPosition = state.position.interpolate(
+              state.nextPosition!,
+              minTimeToArrive / movementDuration.milliseconds
+            );
 
-          const nsteps = Math.floor(timeRemaining / movementDuration.milliseconds);
-          const newFromPosition = this._map.computePosition(
-            state.nextPosition!,
-            state.intention.position,
-            nsteps
-          );
-          const newNextPosition = this._map.getNextPosition(
-            newFromPosition,
-            state.intention.position
-          )[0];
+            newAgentsStates.set(
+              id,
+              new AgentState(
+                newPosition,
+                state.nextPosition,
+                state.carriedParcels,
+                state.intention,
+                false
+              )
+            );
+          } else {
+            const timeRemaining = minTimeToArrive - toNext * movementDuration.milliseconds;
 
-          const offset = timeRemaining - nsteps * movementDuration.milliseconds;
-          const percentage = offset / movementDuration.milliseconds;
-          const newPosition = newFromPosition.interpolate(newNextPosition, percentage);
+            const nsteps = Math.floor(timeRemaining / movementDuration.milliseconds);
+            const newFromPosition = this._map.computePosition(
+              state.nextPosition!,
+              state.intention.position,
+              nsteps
+            );
+            const newNextPosition = this._map.getNextPosition(
+              newFromPosition,
+              state.intention.position
+            )[0];
 
-          newAgentsStates.set(
-            id,
-            new AgentState(
-              newPosition,
-              newNextPosition,
-              state.carriedParcels,
-              state.intention,
-              false
-            )
-          );
+            const offset = timeRemaining - nsteps * movementDuration.milliseconds;
+            const percentage = offset / movementDuration.milliseconds;
+            const newPosition = newFromPosition.interpolate(newNextPosition, percentage);
+
+            newAgentsStates.set(
+              id,
+              new AgentState(
+                newPosition,
+                newNextPosition,
+                state.carriedParcels,
+                state.intention,
+                false
+              )
+            );
+          }
         }
       } else {
         // the agent is waiting indefinitely

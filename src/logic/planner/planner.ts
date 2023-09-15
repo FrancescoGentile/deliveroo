@@ -201,4 +201,28 @@ export class Planner {
     this._nextIteration = undefined;
     this._currentExecution = undefined;
   }
+
+  // eslint-disable-next-line class-methods-use-this
+  private _computeState(state: AgentState, computedAt: Instant, computeAt: Instant): AgentState {
+    const difference = computedAt.subtract(computeAt);
+    // const { movementDuration } = GameConfig.getInstance();
+
+    if (difference.milliseconds > 0) {
+      // this means that the state refers to a time in the future
+      // so we need to compute the agent's state before the time difference
+
+      if (state.terminated) {
+        // const nsteps = Math.floor(difference.milliseconds / movementDuration.milliseconds);
+      }
+    } else if (difference.milliseconds < 0) {
+      // this means that the state refers to a time in the past
+      // so we need to compute the agent's state after the time difference
+    } else {
+      // this means that the state refers to the current time
+      // so we can return it as it is
+      return state;
+    }
+
+    throw new Error('Not implemented');
+  }
 }
