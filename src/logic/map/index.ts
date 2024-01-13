@@ -2,4 +2,4 @@
 //
 //
 
-export { GraphMap } from './map';
+export { GraphMap } from "./map";

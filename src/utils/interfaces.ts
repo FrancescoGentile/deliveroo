@@ -3,5 +3,5 @@
 //
 
 export interface Hashable {
-  hash(): string;
+    hash(): string;
 }

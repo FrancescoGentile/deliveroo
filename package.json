@@ -8,11 +8,9 @@
   "scripts": {
     "build": "tsc && babel tmp_dist -d dist && rm -rf tmp_dist",
     "start": "node --experimental-loader=extensionless dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "pre-commit": "lint-staged",
+    "pre-commit": "biome ci src/",
     "prepare": "husky install",
-    "lint:check": "eslint \"src/**/*.{ts,js,tsx,jsx,json}\" --max-warnings=0",
-    "format:check": "prettier --check \"src/**/*.{ts,js,tsx,jsx,json}\""
+    "fix": "biome check --apply src/"
   },
   "keywords": [],
   "contributors": [
@@ -30,23 +28,12 @@
     "@babel/cli": "^7.22.5",
     "@babel/core": "^7.22.5",
     "@babel/preset-env": "^7.22.5",
-    "@eslint/create-config": "^0.4.2",
+    "@biomejs/biome": "1.5.1",
     "@types/node": "^18.15.11",
     "@types/treeify": "^1.0.0",
     "@types/workerpool": "^6.4.0",
-    "@typescript-eslint/eslint-plugin": "^5.57.0",
-    "@typescript-eslint/parser": "^5.57.0",
     "babel-plugin-module-resolver": "^5.0.0",
-    "eslint": "^8.36.0",
-    "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-config-airbnb-typescript": "^17.0.0",
-    "eslint-config-prettier": "^8.8.0",
-    "eslint-plugin-import": "^2.25.2",
-    "eslint-plugin-n": "^15.0.0",
-    "eslint-plugin-promise": "^6.0.0",
     "husky": "^8.0.0",
-    "lint-staged": "^13.2.0",
-    "prettier": "^2.8.7",
     "ts-node": "^10.9.1",
     "typescript": "^5.0.2"
   },

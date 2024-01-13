@@ -105,3 +105,6 @@ dist
 
 # Visual Studio Code workspace settings
 .vscode
+
+# asdf
+.tool-versions

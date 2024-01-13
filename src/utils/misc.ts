@@ -2,7 +2,7 @@
 //
 //
 
-import { Duration } from './time';
+import { Duration } from "./time";
 
 /**
  * Merges two sorted arrays into a single sorted array.
@@ -15,36 +15,36 @@ import { Duration } from './time';
  * @returns The merged array.
  */
 export function merge<T>(a: T[], b: T[], compare: (a: T, b: T) => number): T[] {
-  const res = new Array(a.length + b.length);
+    const res = new Array(a.length + b.length);
 
-  let i = 0;
-  let j = 0;
-  let k = 0;
+    let i = 0;
+    let j = 0;
+    let k = 0;
 
-  while (i < a.length && j < b.length) {
-    if (compare(a[i], b[j]) <= 0) {
-      res[k] = a[i];
-      i += 1;
-    } else {
-      res[k] = b[j];
-      j += 1;
+    while (i < a.length && j < b.length) {
+        if (compare(a[i], b[j]) <= 0) {
+            res[k] = a[i];
+            i += 1;
+        } else {
+            res[k] = b[j];
+            j += 1;
+        }
+        k += 1;
     }
-    k += 1;
-  }
 
-  while (i < a.length) {
-    res[k] = a[i];
-    i += 1;
-    k += 1;
-  }
+    while (i < a.length) {
+        res[k] = a[i];
+        i += 1;
+        k += 1;
+    }
 
-  while (j < b.length) {
-    res[k] = b[j];
-    j += 1;
-    k += 1;
-  }
+    while (j < b.length) {
+        res[k] = b[j];
+        j += 1;
+        k += 1;
+    }
 
-  return res;
+    return res;
 }
 
 /**
@@ -55,23 +55,23 @@ export function merge<T>(a: T[], b: T[], compare: (a: T, b: T) => number): T[] {
  * @returns The random integer.
  */
 export function getRandomInt(a: number, b?: number): number {
-  let max;
-  let min;
+    let max: number;
+    let min: number;
 
-  if (b === undefined) {
-    max = a;
-    min = 0;
-  } else {
-    max = b;
-    min = a;
-  }
+    if (b === undefined) {
+        max = a;
+        min = 0;
+    } else {
+        max = b;
+        min = a;
+    }
 
-  return Math.floor(Math.random() * (max - min) + min);
+    return Math.floor(Math.random() * (max - min) + min);
 }
 
 export function sleep(duration: Duration): Promise<void> {
-  // eslint-disable-next-line no-promise-executor-return
-  return new Promise((resolve) => setTimeout(resolve, duration.milliseconds));
+    // eslint-disable-next-line no-promise-executor-return
+    return new Promise((resolve) => setTimeout(resolve, duration.milliseconds));
 }
 
 /**
@@ -80,17 +80,20 @@ export function sleep(duration: Duration): Promise<void> {
  * @param values The elements.
  * @returns The index and the value of the random element.
  */
-export function categoricalSample<T>(weights: number[], values: T[]): [number, T] {
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  const random = Math.random() * totalWeight;
+export function categoricalSample<T>(
+    weights: number[],
+    values: T[],
+): [number, T] {
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const random = Math.random() * totalWeight;
 
-  let i = 0;
-  let w = weights[i];
+    let i = 0;
+    let w = weights[i];
 
-  while (w < random) {
-    i += 1;
-    w += weights[i];
-  }
+    while (w < random) {
+        i += 1;
+        w += weights[i];
+    }
 
-  return [i, values[i]];
+    return [i, values[i]];
 }

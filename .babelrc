@@ -3,9 +3,7 @@
         [
             "module-resolver",
             {
-                "root": [
-                    "."
-                ],
+                "root": ["."],
                 "alias": {
                     "src": "./dist"
                 }
