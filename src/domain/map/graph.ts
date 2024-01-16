@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import UndirectedGraph from "graphology";
 import * as workerpool from "workerpool";
 
-import { Tile } from "src/logic/structs";
+import { Tile } from "src/domain/structs";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -48,9 +48,7 @@ export async function buildGraph(tiles: Tile[]): Promise<Graph> {
     });
 
     const distances = await Promise.all(
-        adjacencyMatrices.map((matrix) =>
-            pool.exec("createPairsDistanceMatrix", [matrix]),
-        ),
+        adjacencyMatrices.map((matrix) => pool.exec("createPairsDistanceMatrix", [matrix])),
     );
 
     pool.terminate();
@@ -96,18 +94,12 @@ function findConnectedComponents(graph: Graph): Graph[] {
             while (queue.length > 0) {
                 const current = queue.pop()!;
                 if (!component.hasNode(current)) {
-                    component.addNode(
-                        current,
-                        graph.getNodeAttributes(current)!,
-                    );
+                    component.addNode(current, graph.getNodeAttributes(current)!);
                 }
                 graph.forEachNeighbor(current, (neighbor) => {
                     if (!visited.has(neighbor)) {
                         visited.add(neighbor);
-                        component.addNode(
-                            neighbor,
-                            graph.getNodeAttributes(neighbor)!,
-                        );
+                        component.addNode(neighbor, graph.getNodeAttributes(neighbor)!);
                         if (!component.hasUndirectedEdge(current, neighbor)) {
                             component.addUndirectedEdge(
                                 current,

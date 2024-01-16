@@ -3,32 +3,31 @@
 //
 
 import { Socket, io } from "socket.io-client";
+import { UnknownMessageError } from "src/domain/errors";
 
-import { Actuators, Messenger, Sensors } from "src/logic/ports";
+import { Actuators, Messenger, Sensors } from "src/domain/ports";
 import {
     Agent,
     AgentID,
-    AgentUpdateMessage,
+    AgentSensingMessage,
     DecayingValue,
     Direction,
-    ExecuteMessage,
-    GameConfig,
+    EnvironmentConfig,
     HelloMessage,
-    MergeRequestMessage,
+    IntentionUpdateMessage,
     MessageType,
-    NewTeamMessage,
     Parcel,
     ParcelID,
-    ParcelUpdateMessage,
+    ParcelSensingMessage,
     Position,
     Tile,
     deserializeMessage,
     serializeMessage,
-} from "src/logic/structs";
+} from "src/domain/structs";
 
 import { Duration, HashSet, Instant, sleep } from "src/utils";
 
-export class Client implements Actuators, Sensors, Messenger {
+export class SocketIOClient implements Actuators, Sensors, Messenger {
     private readonly _socket: Socket;
 
     private _agentPosition?: Position;
@@ -37,7 +36,11 @@ export class Client implements Actuators, Sensors, Messenger {
 
     private _crossableTiles?: Tile[];
 
-    private _config?: GameConfig;
+    private _config?: EnvironmentConfig;
+
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
 
     public constructor(host: string, token: string) {
         this._socket = io(host, {
@@ -47,112 +50,18 @@ export class Client implements Actuators, Sensors, Messenger {
             autoConnect: true,
         });
 
-        this._socket.on("you", this.setAgentInfo.bind(this));
-        this._socket.once("map", this.setMap.bind(this));
-        this._socket.once("config", this.setConfig.bind(this));
+        this._socket.on("you", this._setAgentInfo.bind(this));
+        this._socket.once("map", this._setCrossableTiles.bind(this));
+        this._socket.once("config", this._setConfig.bind(this));
     }
 
-    // ---------------------------------------------------------------------------
-    // Attributes setters
-    // ---------------------------------------------------------------------------
-
-    private setAgentInfo(agent: any) {
-        this._agentPosition = new Position(agent.x, agent.y);
-        this._agentID = new AgentID(agent.id);
-    }
-
-    private setMap(_width: number, _height: number, tiles: any[]) {
-        this._crossableTiles = tiles.map(
-            (tile) =>
-                new Tile(
-                    new Position(tile.x, tile.y),
-                    tile.delivery,
-                    tile.parcelSpawner,
-                ),
-        );
-    }
-
-    private setConfig(config: any) {
-        const parcelGenerationInterval =
-            typeof config.PARCELS_GENERATION_INTERVAL === "string"
-                ? parseInt(
-                      config.PARCELS_GENERATION_INTERVAL.slice(0, -1),
-                      10,
-                  ) * 1000
-                : config.PARCELS_GENERATION_INTERVAL;
-
-        const parcelRewardAverage =
-            typeof config.PARCEL_REWARD_AVG === "string"
-                ? parseInt(config.PARCEL_REWARD_AVG, 10)
-                : config.PARCEL_REWARD_AVG;
-
-        const parcelRewardVariance =
-            typeof config.PARCEL_REWARD_VARIANCE === "string"
-                ? parseInt(config.PARCEL_REWARD_VARIANCE, 10)
-                : config.PARCEL_REWARD_VARIANCE;
-
-        const parcelDecayingInterval =
-            config.PARCEL_DECADING_INTERVAL.toLowerCase() === "infinite"
-                ? Infinity
-                : parseInt(config.PARCEL_DECADING_INTERVAL.slice(0, -1), 10) *
-                  1000;
-
-        const movementSteps =
-            typeof config.MOVEMENT_STEPS === "string"
-                ? parseInt(config.MOVEMENT_STEPS, 10)
-                : config.MOVEMENT_STEPS;
-
-        const movementDuration =
-            typeof config.MOVEMENT_DURATION === "string"
-                ? parseInt(config.MOVEMENT_DURATION, 10)
-                : config.MOVEMENT_DURATION;
-
-        const parcelRadius = config.PARCELS_OBSERVATION_DISTANCE - 1;
-        const agentRadius = config.AGENTS_OBSERVATION_DISTANCE - 1;
-
-        let maxParcels =
-            typeof config.PARCELS_MAX === "string"
-                ? parseInt(config.PARCELS_MAX, 10)
-                : config.PARCELS_MAX;
-        maxParcels = maxParcels === undefined ? Infinity : maxParcels;
-
-        const randomAgents =
-            typeof config.RANDOMLY_MOVING_AGENTS === "string"
-                ? parseInt(config.RANDOMLY_MOVING_AGENTS, 10)
-                : config.RANDOMLY_MOVING_AGENTS;
-
-        const randomAgentMovementDuration =
-            typeof config.RANDOM_AGENT_SPEED === "string"
-                ? parseInt(config.RANDOM_AGENT_SPEED.slice(0 - 1), 10) * 1000
-                : config.RANDOM_AGENT_SPEED * 1000;
-
-        this._config = {
-            parcelGenerationInterval,
-            parcelRewardAverage,
-            parcelRewardVariance,
-            parcelDecayingInterval: Duration.fromMilliseconds(
-                parcelDecayingInterval,
-            ),
-            movementSteps,
-            movementDuration: Duration.fromMilliseconds(movementDuration),
-            parcelRadius,
-            agentRadius,
-            maxParcels,
-            randomAgents,
-            randomAgentMovementDuration: Duration.fromMilliseconds(
-                randomAgentMovementDuration,
-            ),
-        };
-    }
-
-    // ---------------------------------------------------------------------------
-    // Invokable methods
-    // ---------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Public methods
+    // ------------------------------------------------------------------------
 
     public async getPosition(): Promise<Position> {
         while (this._agentPosition === undefined) {
-            // eslint-disable-next-line no-await-in-loop
-            await sleep(Duration.fromMilliseconds(100));
+            await new Promise((resolve) => setImmediate(resolve));
         }
 
         return this._agentPosition;
@@ -160,8 +69,7 @@ export class Client implements Actuators, Sensors, Messenger {
 
     public async getID(): Promise<AgentID> {
         while (this._agentID === undefined) {
-            // eslint-disable-next-line no-await-in-loop
-            await sleep(Duration.fromMilliseconds(100));
+            await new Promise((resolve) => setImmediate(resolve));
         }
 
         return this._agentID;
@@ -169,68 +77,29 @@ export class Client implements Actuators, Sensors, Messenger {
 
     public async getCrossableTiles(): Promise<Tile[]> {
         while (this._crossableTiles === undefined) {
-            // eslint-disable-next-line no-await-in-loop
-            await sleep(Duration.fromMilliseconds(100));
+            await new Promise((resolve) => setImmediate(resolve));
         }
 
         return this._crossableTiles;
     }
 
-    public async getConfig(): Promise<GameConfig> {
+    public async getEnvironmentConfig(): Promise<EnvironmentConfig> {
         while (this._config === undefined) {
-            // eslint-disable-next-line no-await-in-loop
-            await sleep(Duration.fromMilliseconds(100));
+            await new Promise((resolve) => setImmediate(resolve));
         }
 
         return this._config;
     }
 
-    public async move(direction: Direction): Promise<boolean> {
-        return new Promise((resolve, _reject) => {
-            this._socket.emit(
-                "move",
-                direction,
-                (response: boolean | PromiseLike<boolean>) => {
-                    resolve(response);
-                },
-            );
+    // ------------------------------------------------------------------------
+    // Sensors methods
+    // ------------------------------------------------------------------------
+
+    public onPositionUpdate(callback: (position: Position) => void): void {
+        this._socket.on("you", (agent) => {
+            callback(new Position(agent.x, agent.y));
         });
     }
-
-    public async pickup(): Promise<HashSet<ParcelID>> {
-        return new Promise((resolve, _reject) => {
-            this._socket.emit("pickup", (response: any[]) => {
-                const parcels: HashSet<ParcelID> = new HashSet<ParcelID>();
-                for (const parcel of response) {
-                    parcels.add(new ParcelID(parcel.id));
-                }
-
-                resolve(parcels);
-            });
-        });
-    }
-
-    public async putdown(parcels: Parcel[] | null): Promise<HashSet<ParcelID>> {
-        return new Promise((resolve, _reject) => {
-            const ids =
-                parcels !== null
-                    ? parcels.map((parcel) => parcel.id.serialize())
-                    : null;
-            this._socket.emit("putdown", ids, (response: any[]) => {
-                const putDownParcels: HashSet<ParcelID> =
-                    new HashSet<ParcelID>();
-                for (const parcel of response) {
-                    putDownParcels.add(new ParcelID(parcel.id));
-                }
-
-                resolve(putDownParcels);
-            });
-        });
-    }
-
-    // ---------------------------------------------------------------------------
-    // Event listeners
-    // ---------------------------------------------------------------------------
 
     public onParcelSensing(callback: (parcels: Parcel[]) => void): void {
         this._socket.on("parcels sensing", (parcels) => {
@@ -249,12 +118,6 @@ export class Client implements Actuators, Sensors, Messenger {
             if (newParcels.length > 0) {
                 callback(newParcels);
             }
-        });
-    }
-
-    public onPositionUpdate(callback: (position: Position) => void): void {
-        this._socket.on("you", (agent) => {
-            callback(new Position(agent.x, agent.y));
         });
     }
 
@@ -279,11 +142,55 @@ export class Client implements Actuators, Sensors, Messenger {
         });
     }
 
-    // ---------------------------------------------------------------------------
-    // Message sending
-    // ---------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Actuators methods
+    // ------------------------------------------------------------------------
 
-    public async shoutHello(message: HelloMessage): Promise<void> {
+    public async move(direction: Direction): Promise<boolean> {
+        if (direction === Direction.NONE) {
+            // the server does not accept a direction of None
+            return true;
+        }
+
+        return new Promise((resolve, _reject) => {
+            this._socket.emit("move", direction, (response: boolean | PromiseLike<boolean>) => {
+                resolve(response);
+            });
+        });
+    }
+
+    public async pickup(): Promise<HashSet<ParcelID>> {
+        return new Promise((resolve, _reject) => {
+            this._socket.emit("pickup", (response: any[]) => {
+                const parcels: HashSet<ParcelID> = new HashSet<ParcelID>();
+                for (const parcel of response) {
+                    parcels.add(new ParcelID(parcel.id));
+                }
+
+                resolve(parcels);
+            });
+        });
+    }
+
+    public async putdown(parcels: Parcel[] | null): Promise<HashSet<ParcelID>> {
+        return new Promise((resolve, _reject) => {
+            const ids = parcels !== null ? parcels.map((parcel) => parcel.id.serialize()) : null;
+            this._socket.emit("putdown", ids, (response: any[]) => {
+                const putDownParcels: HashSet<ParcelID> = new HashSet<ParcelID>();
+                for (const parcel of response) {
+                    putDownParcels.add(new ParcelID(parcel.id));
+                }
+
+                resolve(putDownParcels);
+            });
+        });
+    }
+
+    // ------------------------------------------------------------------------
+    // Messenger methods
+    // ------------------------------------------------------------------------
+
+    public async shoutHelloMessage(message: HelloMessage): Promise<void> {
         return new Promise((resolve, _reject) => {
             this._socket.emit("shout", serializeMessage(message), () => {
                 resolve();
@@ -291,174 +198,310 @@ export class Client implements Actuators, Sensors, Messenger {
         });
     }
 
-    public async askForMerge(
+    public async sendParcelSensingMessage(
         id: AgentID,
-        message: MergeRequestMessage,
+        message: ParcelSensingMessage,
     ): Promise<void> {
         return new Promise((resolve, _reject) => {
-            this._socket.emit(
-                "say",
-                id.serialize(),
-                serializeMessage(message),
-                () => {
-                    resolve();
-                },
-            );
+            this._socket.emit("say", id.serialize(), serializeMessage(message), () => {
+                resolve();
+            });
         });
     }
 
-    public async informAboutNewTeam(
+    public async sendAgentSensingMessage(id: AgentID, message: AgentSensingMessage): Promise<void> {
+        return new Promise((resolve, _reject) => {
+            this._socket.emit("say", id.serialize(), serializeMessage(message), () => {
+                resolve();
+            });
+        });
+    }
+
+    public async sendIntentionUpdateMessage(
         id: AgentID,
-        message: NewTeamMessage,
+        message: IntentionUpdateMessage,
     ): Promise<void> {
         return new Promise((resolve, _reject) => {
-            this._socket.emit(
-                "say",
-                id.serialize(),
-                serializeMessage(message),
-                () => {
-                    resolve();
-                },
-            );
+            this._socket.emit("say", id.serialize(), serializeMessage(message), () => {
+                resolve();
+            });
         });
     }
 
-    public async informAboutParcelUpdate(
-        id: AgentID,
-        message: ParcelUpdateMessage,
-    ): Promise<void> {
-        return new Promise((resolve, _reject) => {
-            this._socket.emit(
-                "say",
-                id.serialize(),
-                serializeMessage(message),
-                () => {
-                    resolve();
-                },
-            );
-        });
-    }
-
-    public async informAboutAgentUpdate(
-        id: AgentID,
-        message: AgentUpdateMessage,
-    ): Promise<void> {
-        return new Promise((resolve, _reject) => {
-            this._socket.emit(
-                "say",
-                id.serialize(),
-                serializeMessage(message),
-                () => {
-                    resolve();
-                },
-            );
-        });
-    }
-
-    public async askToExecute(
-        id: AgentID,
-        message: ExecuteMessage,
-    ): Promise<boolean> {
-        return new Promise((resolve, _reject) => {
-            this._socket.emit(
-                "ask",
-                id.serialize(),
-                serializeMessage(message),
-                (response: boolean | PromiseLike<boolean>) => {
-                    resolve(response);
-                },
-            );
-        });
-    }
-
-    // ---------------------------------------------------------------------------
-    // Message receiving
-    // ---------------------------------------------------------------------------
-
-    public async onHelloMessage(
-        callback: (id: AgentID, message: HelloMessage) => void,
-    ): Promise<void> {
+    public onHelloMessage(callback: (sender: AgentID, message: HelloMessage) => void): void {
         this._socket.on("msg", (id, _name, msg, reply) => {
-            const message = deserializeMessage(msg);
-            if (message.type === MessageType.HELLO) {
-                callback(new AgentID(id), message);
-                if (reply) {
-                    // this should not happen for hello messages
-                    reply();
+            try {
+                const message = deserializeMessage(msg);
+                if (message.type === MessageType.HELLO) {
+                    callback(new AgentID(id), message);
+                    if (reply) {
+                        reply();
+                    }
+                }
+            } catch (error) {
+                // If the error is an UnknownMessageError, we ignore it
+                // since it means that we received a message from an agent
+                // that does not follow the protocol.
+
+                if (!(error instanceof UnknownMessageError)) {
+                    // If this happens, there is a bug in the code.
+                    throw error;
                 }
             }
         });
     }
 
-    public async onMergeRequestMessage(
-        callback: (id: AgentID, message: MergeRequestMessage) => void,
-    ): Promise<void> {
+    public onParcelSensingMessage(
+        callback: (sender: AgentID, message: ParcelSensingMessage) => void,
+    ): void {
         this._socket.on("msg", (id, _name, msg, reply) => {
-            // Add try catch
-            const message = deserializeMessage(msg);
-            if (message.type === MessageType.MERGE_REQUEST) {
-                callback(new AgentID(id), message);
-                if (reply) {
-                    reply();
+            try {
+                const message = deserializeMessage(msg);
+                if (message.type === MessageType.PARCEL_SENSING) {
+                    callback(new AgentID(id), message);
+                    if (reply) {
+                        reply();
+                    }
+                }
+            } catch (error) {
+                if (!(error instanceof UnknownMessageError)) {
+                    throw error;
                 }
             }
         });
     }
 
-    public async onNewTeamMessage(
-        callback: (id: AgentID, message: NewTeamMessage) => void,
-    ): Promise<void> {
+    public onAgentSensingMessage(
+        callback: (sender: AgentID, message: AgentSensingMessage) => void,
+    ): void {
         this._socket.on("msg", (id, _name, msg, reply) => {
-            const message = deserializeMessage(msg);
-            if (message.type === MessageType.NEW_TEAM) {
-                callback(new AgentID(id), message);
-                if (reply) {
-                    reply();
+            try {
+                const message = deserializeMessage(msg);
+                if (message.type === MessageType.AGENT_SENSING) {
+                    callback(new AgentID(id), message);
+                    if (reply) {
+                        reply();
+                    }
+                }
+            } catch (error) {
+                if (!(error instanceof UnknownMessageError)) {
+                    throw error;
                 }
             }
         });
     }
 
-    public async onParcelUpdateMessage(
-        callback: (id: AgentID, message: ParcelUpdateMessage) => void,
-    ): Promise<void> {
+    public onIntentionUpdateMessage(
+        callback: (sender: AgentID, message: IntentionUpdateMessage) => void,
+    ): void {
         this._socket.on("msg", (id, _name, msg, reply) => {
-            const message = deserializeMessage(msg);
-            if (message.type === MessageType.PARCEL_UPDATE) {
-                // console.log(msg)
-                callback(new AgentID(id), message);
-                if (reply) {
-                    reply();
+            try {
+                const message = deserializeMessage(msg);
+                if (message.type === MessageType.INTENTION_UPDATE) {
+                    callback(new AgentID(id), message);
+                    if (reply) {
+                        reply();
+                    }
+                }
+            } catch (error) {
+                if (!(error instanceof UnknownMessageError)) {
+                    throw error;
                 }
             }
         });
     }
 
-    public async onAgentUpdateMessage(
-        callback: (id: AgentID, message: AgentUpdateMessage) => void,
-    ): Promise<void> {
-        this._socket.on("msg", (id, _name, msg, reply) => {
-            const message = deserializeMessage(msg);
-            if (message.type === MessageType.AGENT_UPDATE) {
-                callback(new AgentID(id), message);
-                if (reply) {
-                    reply();
-                }
-            }
-        });
+    // ------------------------------------------------------------------------
+    // Private methods
+    // ------------------------------------------------------------------------
+
+    private _setAgentInfo(agent: any) {
+        this._agentPosition = new Position(agent.x, agent.y);
+        this._agentID = new AgentID(agent.id);
     }
 
-    public async onExecuteMessage(
-        callback: (id: AgentID, message: ExecuteMessage) => boolean,
-    ): Promise<void> {
-        this._socket.on("msg", (id, _name, msg, reply) => {
-            const message = deserializeMessage(msg);
-            if (message.type === MessageType.EXECUTE) {
-                const response = callback(new AgentID(id), message);
-                if (reply) {
-                    reply(response);
-                }
+    private _setCrossableTiles(_width: number, _height: number, tiles: any[]) {
+        this._crossableTiles = tiles.map(
+            (tile) => new Tile(new Position(tile.x, tile.y), tile.delivery, tile.parcelSpawner),
+        );
+    }
+
+    private _setConfig(config: any) {
+        let parcelGenerationInterval: Duration;
+        switch (typeof config.PARCEL_GENERATION_INTERVAL) {
+            case "string": {
+                const interval = parseInt(config.PARCEL_GENERATION_INTERVAL.slice(0, -1), 10);
+                parcelGenerationInterval = Duration.fromMilliseconds(interval * 1000);
+                break;
             }
-        });
+            case "number": {
+                parcelGenerationInterval = Duration.fromMilliseconds(
+                    config.PARCEL_GENERATION_INTERVAL,
+                );
+                break;
+            }
+            default: {
+                throw new Error("Invalid PARCEL_GENERATION_INTERVAL.");
+            }
+        }
+
+        let parcelRewardMean: number;
+        switch (typeof config.PARCEL_REWARD_AVG) {
+            case "string": {
+                parcelRewardMean = parseInt(config.PARCEL_REWARD_AVG, 10);
+                break;
+            }
+            case "number": {
+                parcelRewardMean = config.PARCEL_REWARD_AVG;
+                break;
+            }
+            default: {
+                throw new Error("Invalid PARCEL_REWARD_AVG.");
+            }
+        }
+
+        let parcelRewardVariance: number;
+        switch (typeof config.PARCEL_REWARD_VARIANCE) {
+            case "string": {
+                parcelRewardVariance = parseInt(config.PARCEL_REWARD_VARIANCE, 10);
+                break;
+            }
+            case "number": {
+                parcelRewardVariance = config.PARCEL_REWARD_VARIANCE;
+                break;
+            }
+            default: {
+                throw new Error("Invalid PARCEL_REWARD_VARIANCE.");
+            }
+        }
+
+        let parcelDecayingInterval: Duration;
+        switch (typeof config.PARCEL_DECADING_INTERVAL) {
+            case "string": {
+                const interval = parseInt(config.PARCEL_DECADING_INTERVAL.slice(0, -1), 10);
+                parcelDecayingInterval = Duration.fromMilliseconds(interval * 1000);
+                break;
+            }
+            case "number": {
+                parcelDecayingInterval = Duration.fromMilliseconds(config.PARCEL_DECADING_INTERVAL);
+                break;
+            }
+            default: {
+                throw new Error("Invalid PARCEL_DECADING_INTERVAL.");
+            }
+        }
+
+        let movementSteps: number;
+        switch (typeof config.MOVEMENT_STEPS) {
+            case "string": {
+                movementSteps = parseInt(config.MOVEMENT_STEPS, 10);
+                break;
+            }
+            case "number": {
+                movementSteps = config.MOVEMENT_STEPS;
+                break;
+            }
+            default: {
+                throw new Error("Invalid MOVEMENT_STEPS.");
+            }
+        }
+
+        let movementDuration: Duration;
+        switch (typeof config.MOVEMENT_DURATION) {
+            case "string": {
+                const interval = parseInt(config.MOVEMENT_DURATION.slice(0, -1), 10);
+                movementDuration = Duration.fromMilliseconds(interval);
+                break;
+            }
+            case "number": {
+                movementDuration = Duration.fromMilliseconds(config.MOVEMENT_DURATION);
+                break;
+            }
+            default: {
+                throw new Error("Invalid MOVEMENT_DURATION.");
+            }
+        }
+
+        let parcelRadius: number;
+        switch (typeof config.PARCELS_OBSERVATION_DISTANCE) {
+            case "number": {
+                parcelRadius = config.PARCEL_RADIUS - 1;
+                break;
+            }
+            default: {
+                throw new Error("Invalid PARCEL_RADIUS.");
+            }
+        }
+
+        let agentRadius: number;
+        switch (typeof config.AGENTS_OBSERVATION_DISTANCE) {
+            case "number": {
+                agentRadius = config.AGENT_RADIUS - 1;
+                break;
+            }
+            default: {
+                throw new Error("Invalid AGENT_RADIUS.");
+            }
+        }
+
+        let maxParcels: number;
+        switch (typeof config.PARCELS_MAX) {
+            case "string": {
+                maxParcels = parseInt(config.PARCELS_MAX, 10);
+                break;
+            }
+            case "number": {
+                maxParcels = config.PARCELS_MAX;
+                break;
+            }
+            default: {
+                throw new Error("Invalid MAX_PARCELS.");
+            }
+        }
+
+        let numRandomAgents: number;
+        switch (typeof config.RANDOMLY_MOVING_AGENTS) {
+            case "string": {
+                numRandomAgents = parseInt(config.RANDOMLY_MOVING_AGENTS, 10);
+                break;
+            }
+            case "number": {
+                numRandomAgents = config.RANDOMLY_MOVING_AGENTS;
+                break;
+            }
+            default: {
+                throw new Error("Invalid NUM_RANDOM_AGENTS.");
+            }
+        }
+
+        let randomAgentMovementDuration: Duration;
+        switch (typeof config.RANDOM_AGENT_SPEED) {
+            case "string": {
+                const interval = parseInt(config.RANDOM_AGENT_SPEED.slice(0, -1), 10);
+                randomAgentMovementDuration = Duration.fromMilliseconds(interval * 1000);
+                break;
+            }
+            case "number": {
+                randomAgentMovementDuration = Duration.fromMilliseconds(config.RANDOM_AGENT_SPEED);
+                break;
+            }
+            default: {
+                throw new Error("Invalid RANDOM_AGENT_SPEED.");
+            }
+        }
+
+        this._config = {
+            parcelGenerationInterval,
+            parcelRewardMean,
+            parcelRewardVariance,
+            parcelDecayingInterval,
+            movementSteps,
+            movementDuration,
+            parcelRadius,
+            agentRadius,
+            maxParcels,
+            numRandomAgents,
+            randomAgentMovementDuration,
+        };
     }
 }

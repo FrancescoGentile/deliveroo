@@ -19,6 +19,12 @@ export class HashSet<V extends Hashable> {
         this._map.set(value.hash(), value);
     }
 
+    public addAll(values: V[]): void {
+        for (const value of values) {
+            this.add(value);
+        }
+    }
+
     public has(value: V): boolean {
         return this._map.has(value.hash());
     }

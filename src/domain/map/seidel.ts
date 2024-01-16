@@ -7,9 +7,7 @@ import workerpool from "workerpool";
 import * as math from "mathjs";
 import { Matrix } from "mathjs";
 
-workerpool.worker({
-    createPairsDistanceMatrix,
-});
+workerpool.worker({ createPairsDistanceMatrix });
 
 function createPairsDistanceMatrix(adj: number[][]): number[][] {
     const adjMatrix = math.matrix(adj);
@@ -20,11 +18,7 @@ function computeDistances(adj: Matrix): Matrix {
     math.matrix(adj);
     const adjArray = adj.toArray() as number[][];
 
-    if (
-        adjArray.every((row, i) =>
-            row.every((_, j) => i === j || adjArray[i][j]),
-        )
-    ) {
+    if (adjArray.every((row, i) => row.every((_, j) => i === j || adjArray[i][j]))) {
         return adj;
     }
 

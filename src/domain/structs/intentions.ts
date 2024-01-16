@@ -3,7 +3,7 @@
 //
 
 import { Hashable } from "src/utils";
-import { Position } from "./env";
+import { Position } from "./map";
 
 export enum IntentionType {
     PUTDOWN = "putdown",
@@ -50,9 +50,6 @@ export class Intention implements Hashable {
 
     public static deserialize(serialized: string): Intention {
         const parsed = JSON.parse(serialized);
-        return new Intention(
-            parsed.type,
-            Position.deserialize(parsed.position),
-        );
+        return new Intention(parsed.type, Position.deserialize(parsed.position));
     }
 }

@@ -3,8 +3,13 @@
 //
 
 import { Instant } from "src/utils";
-import { GameConfig } from "./config";
+import { Config } from "./config";
 
+/**
+ * A decaying value.
+ *
+ * This represents the value of a parcel that decays over time.
+ */
 export class DecayingValue {
     private readonly _value: number;
 
@@ -17,13 +22,14 @@ export class DecayingValue {
 
     /**
      * Compute the value at the given instance of time.
+     *
      * @param instant The instance to compute the value at.
      * @returns The value.
      */
     public getValueByInstant(instant: Instant): number {
         const diff = instant.subtract(this._time);
-        const decay = GameConfig.getInstance().parcelDecayingInterval;
-        const value = this._value - diff.milliseconds / decay.milliseconds;
+        const { parcelDecayingInterval } = Config.getEnvironmentConfig();
+        const value = this._value - diff.milliseconds / parcelDecayingInterval.milliseconds;
         return value < 0 ? 0 : value;
     }
 
@@ -32,6 +38,7 @@ export class DecayingValue {
      * If the value becomes 0 in time between the two instances, the difference will be simply
      * equal to the value at the first instance. Thus, the difference in value is always between
      * 0 and the value at the first instance (inclusive).
+     *
      * @param start The first instance of time.
      * @param end The second instance of time.
      * @returns The difference in value.

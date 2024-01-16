@@ -8,6 +8,9 @@ import { Hashable } from "src/utils";
 // Direction
 // ---------------------------------------------------------------------------
 
+/**
+ * A movement direction.
+ */
 export enum Direction {
     UP = "up",
     DOWN = "down",
@@ -20,6 +23,9 @@ export enum Direction {
 // Position
 // ---------------------------------------------------------------------------
 
+/**
+ * A position on the map.
+ */
 export class Position implements Hashable {
     public constructor(
         public readonly row: number,
@@ -32,10 +38,7 @@ export class Position implements Hashable {
      * @returns The manhattan distance between this position and the other position.
      */
     public manhattanDistance(other: Position): number {
-        return (
-            Math.abs(this.row - other.row) +
-            Math.abs(this.column - other.column)
-        );
+        return Math.abs(this.row - other.row) + Math.abs(this.column - other.column);
     }
 
     /**
@@ -126,9 +129,7 @@ export class Position implements Hashable {
     }
 
     public static deserialize(serialized: string): Position {
-        const [row, column] = serialized
-            .split(",")
-            .map((value) => parseInt(value, 10));
+        const [row, column] = serialized.split(",").map((value) => parseInt(value, 10));
         return new Position(row, column);
     }
 }
@@ -137,6 +138,9 @@ export class Position implements Hashable {
 // Tile
 // ---------------------------------------------------------------------------
 
+/**
+ * A tile of the map.
+ */
 export class Tile {
     public constructor(
         public readonly position: Position,

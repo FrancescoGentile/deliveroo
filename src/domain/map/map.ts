@@ -2,10 +2,10 @@
 //
 //
 
-import { Direction, Position, Tile } from "src/logic/structs";
+import { Direction, Position, Tile } from "src/domain/structs";
 import { Graph, buildGraph } from "./graph";
 
-export class GraphMap {
+export class GridMap {
     private constructor(
         private readonly _graph: Graph,
         private readonly _deliveryTiles: Tile[],
@@ -13,21 +13,26 @@ export class GraphMap {
 
     /**
      * Creates a new graph from the given tiles.
+     *
      * @param tiles The tiles in the environment that are walkable.
+     *
      * @returns A new graph.
      */
-    public static async new(tiles: Tile[]): Promise<GraphMap> {
+    public static async new(tiles: Tile[]): Promise<GridMap> {
         const graph = await buildGraph(tiles);
         const deliveryTiles = tiles.filter((tile) => tile.delivery);
 
-        return new GraphMap(graph, deliveryTiles);
+        return new GridMap(graph, deliveryTiles);
     }
 
     /**
      * Returns the length of the shortest path between the two positions.
+     *
      * @param from The starting position.
      * @param to The ending position.
+     *
      * @returns The length of the shortest path between the two positions.
+     *
      * @throws If no path exists between the two positions.
      */
     public distance(from: Position, to: Position): number {
@@ -38,26 +43,29 @@ export class GraphMap {
         return this._distance(from, to);
     }
 
+    /**
+     * Returns the length of the shortest path between the given position and the closest delivery position.
+     *
+     * @param position The position to find the closest delivery position for.
+     *
+     * @returns The length of the shortest path between the given position and the closest delivery position.
+     */
     public distanceToDelivery(position: Position): number {
-        return this._distance(
-            position,
-            this.getClosestDeliveryPosition(position),
-        );
+        return this._distance(position, this.getClosestDeliveryPosition(position));
     }
 
     /**
      * Returns the positions adjacent to the given position.
+     *
      * @param position The position to find adjacent tiles for.
+     *
      * @returns The adjacent positions.
      */
     public adjacent(position: Position): Position[] {
         return position
             .adjacent()
             .filter((adjacent) => this._graph.hasNode(adjacent.hash()))
-            .map(
-                (adjacent) =>
-                    this._graph.getNodeAttributes(adjacent.hash())!.position,
-            );
+            .map((adjacent) => this._graph.getNodeAttributes(adjacent.hash())!.position);
     }
 
     /**
@@ -68,6 +76,7 @@ export class GraphMap {
      *
      * @param from The starting position.
      * @param to The ending position.
+     *
      * @returns The next position in the path from the `from` position to the `to` position.
      */
     public getNextPosition(from: Position, to: Position): Position[] {
@@ -93,35 +102,35 @@ export class GraphMap {
      *
      * @param from The starting position.
      * @param to The ending position.
+     *
      * @returns The next direction to move from the `from` position to the `to` position.
      */
     public getNextDirection(from: Position, to: Position): Direction[] {
-        return this.getNextPosition(from, to).map((position) =>
-            from.directionTo(position),
-        );
+        return this.getNextPosition(from, to).map((position) => from.directionTo(position));
     }
 
     /**
      * Returns the tile at the given position.
+     *
      * @param position The position to find the tile for.
+     *
      * @returns The tile at the given position or `null` if no tile exists.
      */
     public getTile(position: Position): Tile | null {
         return this._graph.getNodeAttributes(position.hash());
     }
 
+    /**
+     * Returns the closest delivery position to the given position.
+     *
+     * @param position The position to find the closest delivery position for.
+     *
+     * @returns The closest delivery position.
+     */
     public getClosestDeliveryPosition(position: Position): Position {
         const distances = this._deliveryTiles
-            .filter((tile) =>
-                this._graph.hasUndirectedEdge(
-                    position.hash(),
-                    tile.position.hash(),
-                ),
-            )
-            .map(
-                (tile) =>
-                    [tile, this._distance(position, tile.position)] as const,
-            );
+            .filter((tile) => this._graph.hasUndirectedEdge(position.hash(), tile.position.hash()))
+            .map((tile) => [tile, this._distance(position, tile.position)] as const);
 
         let minDistance = Number.POSITIVE_INFINITY;
         let closestTile: Tile | null = null;
@@ -148,11 +157,7 @@ export class GraphMap {
      * @param to The ending position.
      * @param nsteps The number of steps to take along the path.
      */
-    public computePosition(
-        from: Position,
-        to: Position,
-        nsteps: number,
-    ): Position {
+    public computePosition(from: Position, to: Position, nsteps: number): Position {
         const distance = this.distance(from, to);
         if (nsteps >= distance) {
             return to;

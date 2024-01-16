@@ -4,45 +4,62 @@
 
 import { Duration } from "src/utils";
 
-export interface Config {
-    readonly parcelGenerationInterval: number; // 2000
-
-    readonly parcelRewardAverage: number; // 30
-
-    readonly parcelRewardVariance: number; // 10
-
-    readonly parcelDecayingInterval: number; // Infinity
-
-    readonly movementSteps: number; // 1
-
-    readonly movementDuration: Duration; // 500
-
-    readonly parcelRadius: number; // 10
-
-    readonly agentRadius: number; // 10
-
-    readonly maxParcels: number; // Infinity
-
-    readonly randomAgents: number; // 2
-
-    readonly randomAgentMovementDuration: number; // 2000
+export interface EnvironmentConfig {
+    readonly parcelRewardMean: number;
+    readonly parcelRewardVariance: number;
+    readonly parcelGenerationInterval: Duration;
+    readonly parcelDecayingInterval: Duration;
+    readonly movementDuration: Duration;
+    readonly movementSteps: number;
+    readonly parcelRadius: number;
+    readonly agentRadius: number;
+    readonly maxParcels: number;
+    readonly numRandomAgents: number;
+    readonly randomAgentMovementDuration: Duration;
 }
 
-export namespace Config {
-    let _instance: Config | null = null;
+export interface PlayerConfig {
+    readonly secretKey: string;
+    readonly secretSeed: string;
+    readonly helloInterval: Duration;
+    readonly maxLastHeard: Duration;
+    readonly startIterations: number;
+    readonly numPromisingPositions: number;
+}
 
-    export function getInstance(): Config {
-        if (_instance === null) {
-            throw new Error("Config not initialized");
-        }
+export class Config {
+    private static _instance?: Config;
 
-        return _instance;
+    private readonly _environment: EnvironmentConfig;
+
+    private readonly _player: PlayerConfig;
+
+    private constructor(environment: EnvironmentConfig, player: PlayerConfig) {
+        this._environment = environment;
+        this._player = player;
     }
 
-    export function configure(config: Config): void {
-        if (_instance !== null) {
-            throw new Error("Config already initialized");
+    public static init(environment: EnvironmentConfig, player: PlayerConfig) {
+        if (Config._instance !== undefined) {
+            throw new Error("Config already initialized.");
         }
-        _instance = config;
+
+        Config._instance = new Config(environment, player);
+    }
+
+    public static getInstance(): Config {
+        if (Config._instance === undefined) {
+            throw new Error("Config not initialized.");
+        }
+
+        return Config._instance;
+    }
+
+    public static getEnvironmentConfig(): EnvironmentConfig {
+        return Config.getInstance()._environment;
+    }
+
+    public static getPlayerConfig(): PlayerConfig {
+        return Config.getInstance()._player;
     }
 }

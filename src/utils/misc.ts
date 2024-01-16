@@ -80,10 +80,7 @@ export function sleep(duration: Duration): Promise<void> {
  * @param values The elements.
  * @returns The index and the value of the random element.
  */
-export function categoricalSample<T>(
-    weights: number[],
-    values: T[],
-): [number, T] {
+export function categoricalSample<T>(weights: number[], values: T[]): [number, T] {
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const random = Math.random() * totalWeight;
 

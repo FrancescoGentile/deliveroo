@@ -27,29 +27,17 @@ export class Cryptographer {
         this._key = key;
 
         // generate random iv using seed
-        const iv = crypto
-            .createHash("sha256")
-            .update(seed)
-            .digest("hex")
-            .slice(0, 16);
+        const iv = crypto.createHash("sha256").update(seed).digest("hex").slice(0, 16);
         this._iv = iv;
     }
 
     public encrypt(data: string): string {
-        const cipher = crypto.createCipheriv(
-            "aes-256-cbc",
-            this._key,
-            this._iv,
-        );
+        const cipher = crypto.createCipheriv("aes-256-cbc", this._key, this._iv);
         return cipher.update(data, "utf8", "hex") + cipher.final("hex");
     }
 
     public decrypt(data: string): string {
-        const decipher = crypto.createDecipheriv(
-            "aes-256-cbc",
-            this._key,
-            this._iv,
-        );
+        const decipher = crypto.createDecipheriv("aes-256-cbc", this._key, this._iv);
         return decipher.update(data, "hex", "utf8") + decipher.final("utf8");
     }
 }
