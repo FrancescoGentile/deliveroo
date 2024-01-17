@@ -2,7 +2,15 @@
 //
 //
 
-import { Config, Intention, IntentionType, Parcel, Position, Utility } from "src/domain/structs";
+import {
+    Config,
+    Intention,
+    IntentionType,
+    Parcel,
+    ParcelID,
+    Position,
+    Utility,
+} from "src/domain/structs";
 import { Instant } from "src/utils";
 import { Environment } from "../environment";
 import { UnsupportedIntentionTypeError } from "../errors";
@@ -10,8 +18,8 @@ import { UnsupportedIntentionTypeError } from "../errors";
 export interface State {
     readonly executedIntenion: Intention;
     position: Position;
-    readonly pickedParcels: Parcel[];
-    readonly arrivalInstant: Instant;
+    arrivalInstant: Instant;
+    readonly pickedParcels: ParcelID[];
 }
 
 /**
@@ -60,8 +68,10 @@ export class Node {
                 break;
             }
             case IntentionType.PUTDOWN: {
-                for (const parcel of state.pickedParcels) {
-                    this._reward += parcel.value.getValueByInstant(state.arrivalInstant);
+                for (const parcelID of state.pickedParcels) {
+                    this._reward += this.environment
+                        .getParcelByID(parcelID)!
+                        .value.getValueByInstant(state.arrivalInstant);
                 }
                 break;
             }
@@ -77,27 +87,78 @@ export class Node {
     // Public methods
     // -----------------------------------------------------------------------
 
+    /**
+     * Returns true if the node is fully expanded.
+     *
+     * @returns true if the node is fully expanded.
+     */
     public isFullyExpanded(): boolean {
         return this.children.length === this.nextIntentions.length;
     }
 
+    /**
+     * Returns true if the node is terminal, i.e. if it cannot have any child.
+     *
+     * @returns true if the node is terminal.
+     */
     public isTerminal(): boolean {
         return this.nextIntentions.length === 0;
     }
 
+    /**
+     * Selects a child of the node.
+     * If the node is not fully expanded, it expands it and returns the new child.
+     * If the node is fully expanded, it returns the best child according to the UCT formula.
+     *
+     * @returns the selected child.
+     *
+     * @throws {Error} If the node is terminal.
+     */
     public selectChild(): Node {
         if (this.isTerminal()) {
             throw new Error("Cannot select child of a terminal node.");
         }
 
         if (!this.isFullyExpanded()) {
-            return this.expand();
+            return this._expand();
         }
 
         return this._getBestChild();
     }
 
-    public expand(): Node {
+    public backtrack(utility: Utility) {
+        this._visits += 1;
+
+        let toBePassed: Utility;
+        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+            const tmp = utility.newWith(
+                this._reward,
+                this.state.pickedParcels.map((id) => this.environment.getParcelByID(id)!),
+                this.state.arrivalInstant,
+            );
+
+            this.utility.add(tmp);
+            toBePassed = tmp;
+        } else {
+            this.utility.add(utility);
+            toBePassed = utility;
+        }
+
+        if (this.parent !== null) {
+            this.parent.backtrack(toBePassed);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Private methods
+    // -----------------------------------------------------------------------
+
+    /**
+     * Expands the node by adding a new child.
+     *
+     * @returns the new child.
+     */
+    private _expand(): Node {
         const idx = this.children.length;
         const nextIntention = this.nextIntentions[idx];
 
@@ -105,7 +166,7 @@ export class Node {
             .filter((intention, i) => i !== idx && intention.type === IntentionType.PICKUP)
             .map((intention) => intention.position);
 
-        let pickedParcels: Parcel[];
+        let pickedParcels: ParcelID[];
 
         switch (nextIntention.type) {
             case IntentionType.PUTDOWN: {
@@ -120,7 +181,9 @@ export class Node {
                 }
 
                 pickedParcels.push(
-                    ...this.environment.getParcelsByPosition(nextIntention.position),
+                    ...this.environment
+                        .getParcelsByPosition(nextIntention.position)
+                        .map((p) => p.id),
                 );
 
                 break;
@@ -147,33 +210,13 @@ export class Node {
         return node;
     }
 
-    public backtrack(utility: Utility) {
-        this._visits += 1;
-
-        let toBePassed: Utility;
-        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            const tmp = utility.newWith(
-                this._reward,
-                this.state.pickedParcels,
-                this.state.arrivalInstant,
-            );
-
-            this.utility.add(tmp);
-            toBePassed = tmp;
-        } else {
-            this.utility.add(utility);
-            toBePassed = utility;
-        }
-
-        if (this.parent !== null) {
-            this.parent.backtrack(toBePassed);
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Private methods
-    // -----------------------------------------------------------------------
-
+    /**
+     * Returns the best child of the node according to the UCT formula.
+     *
+     * @param explorationParameter The exploration parameter to use in the UCT formula.
+     *
+     * @returns the best child of the node.
+     */
     private _getBestChild(explorationParameter: number = Math.sqrt(2)): Node {
         if (this.children.length === 0) {
             throw new Error("Cannot get best child of a node without children.");
@@ -220,8 +263,10 @@ export class Node {
         const arrivalTime = this.state.arrivalInstant.add(movementDuration.multiply(distance));
 
         let upperBound = Number.EPSILON;
-        for (const parcel of this.state.pickedParcels) {
-            upperBound += parcel.value.getValueByInstant(arrivalTime);
+        for (const parcelID of this.state.pickedParcels) {
+            upperBound += this.environment
+                .getParcelByID(parcelID)!
+                .value.getValueByInstant(arrivalTime);
         }
 
         for (const intention of this.nextIntentions) {
@@ -235,6 +280,13 @@ export class Node {
         return upperBound;
     }
 
+    /**
+     * Sorts the next intentions according to their greedy value.
+     *
+     * @param start The index of the first intention to start sorting from.
+     *
+     * @throws {Error} If the intentions to sort have already been expanded.
+     */
     private _sortIntentions(start = 0) {
         if (this.children.length > start) {
             throw new Error("Cannot sort intentions that have already been expanded.");
@@ -251,6 +303,21 @@ export class Node {
         }
     }
 
+    /**
+     * Computes the greedy value of the given intention.
+     * The greedy value of a pickup intention is the utility that the agent would obtain if it
+     * went pickup the parcels at the given position and then deliver them (and the parcels it is
+     * already carrying) to the closest delivery point.
+     * The greedy value of a putdown intention is the utility that the agent would obtain if it
+     * went to the given position and then delivered all the parcels it is currently carrying.
+     *
+     * @param intention The intention to compute the greedy value of.
+     *
+     * @returns the greedy value of the given intention.
+     *
+     * @throws {UnsupportedIntentionTypeError} If the given intention is not a pickup or a putdown
+     * intention.
+     */
     private _computeGreedyValue(intention: Intention): number {
         switch (intention.type) {
             case IntentionType.PICKUP: {
@@ -267,8 +334,10 @@ export class Node {
                 );
 
                 let value = 0;
-                for (const parcel of this.state.pickedParcels) {
-                    value += parcel.value.getValueByInstant(arrivalTime);
+                for (const parcelID of this.state.pickedParcels) {
+                    value += this.environment
+                        .getParcelByID(parcelID)!
+                        .value.getValueByInstant(arrivalTime);
                 }
 
                 for (const parcel of this.environment.getParcelsByPosition(pickupPosition)) {
@@ -288,8 +357,10 @@ export class Node {
                 );
 
                 let value = 0;
-                for (const parcel of this.state.pickedParcels) {
-                    value += parcel.value.getValueByInstant(arrivalTime);
+                for (const parcelID of this.state.pickedParcels) {
+                    value += this.environment
+                        .getParcelByID(parcelID)!
+                        .value.getValueByInstant(arrivalTime);
                 }
 
                 return value;

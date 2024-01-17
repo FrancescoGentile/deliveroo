@@ -39,8 +39,9 @@ export class AgentID implements Hashable {
 export class Agent {
     public constructor(
         public readonly id: AgentID,
-        public position: Position,
-        public score: number,
+        public readonly position: Position,
+        public readonly score: number,
+        public readonly random: boolean,
     ) {}
 
     public toString(): string {
@@ -52,6 +53,7 @@ export class Agent {
             id: this.id.serialize(),
             position: this.position.serialize(),
             score: this.score,
+            random: this.random,
         };
 
         return JSON.stringify(obj);
@@ -63,6 +65,7 @@ export class Agent {
             AgentID.deserialize(obj.id),
             Position.deserialize(obj.position),
             obj.score,
+            obj.random,
         );
     }
 }

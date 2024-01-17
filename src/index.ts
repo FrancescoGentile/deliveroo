@@ -23,6 +23,7 @@ function getConfig(): [PlayerConfig, string, string] {
         { name: "max-last-heard", type: Number, defaultValue: 6000 },
         { name: "start-iterations", type: Number, defaultValue: 10 },
         { name: "num-promising-positions", type: Number, defaultValue: 5 },
+        { name: "gaussian-std", type: Number, defaultValue: 1.0 },
     ];
 
     // first check if the corresponding environment variables are set
@@ -54,6 +55,7 @@ function getConfig(): [PlayerConfig, string, string] {
         maxLastHeard: Duration.fromMilliseconds(config.get("max-last-heard") as number),
         startIterations: config.get("start-iterations") as number,
         numPromisingPositions: config.get("num-promising-positions") as number,
+        gaussianStd: config.get("gaussian-std") as number,
     };
 
     return [playerConfig, config.get("host") as string, config.get("token") as string];

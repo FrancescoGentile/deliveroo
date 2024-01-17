@@ -25,6 +25,7 @@ export interface PlayerConfig {
     readonly maxLastHeard: Duration;
     readonly startIterations: number;
     readonly numPromisingPositions: number;
+    readonly gaussianStd: number;
 }
 
 export class Config {

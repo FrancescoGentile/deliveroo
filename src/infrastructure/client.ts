@@ -131,6 +131,7 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
                             new AgentID(agent.id),
                             new Position(agent.x, agent.y),
                             agent.score,
+                            false,
                         ),
                     );
                 }

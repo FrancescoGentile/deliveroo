@@ -118,6 +118,7 @@ function findConnectedComponents(graph: Graph): Graph[] {
 
     return components;
 }
+
 function computeAdjacencyMatrix(graph: Graph): number[][] {
     const matrix: number[][] = [];
 

@@ -20,6 +20,7 @@ import {
     Intention,
     IntentionType,
     IntentionUpdateMessage,
+    Message,
     MessageType,
     Parcel,
     ParcelSensingMessage,
@@ -137,7 +138,7 @@ export class Player {
      */
     private async _run() {
         while (this._shouldRun) {
-            const intention = this._getBestIntention();
+            const intention = await this._getBestIntention();
             const possibleDirections = this._environment.map.getNextDirection(
                 this._position,
                 intention.position,
@@ -185,7 +186,7 @@ export class Player {
      * 3. If the player is assigned an intention that has an utility greater than 0, return that intention.
      * 4. Otherwise, compute the best move intention that the player can execute and return it.
      */
-    private _getBestIntention(): Intention {
+    private async _getBestIntention(): Promise<Intention> {
         const now = Instant.now();
         const { maxLastHeard } = Config.getPlayerConfig();
 
@@ -196,7 +197,13 @@ export class Player {
         let mateIdx = 1; // 0 is reserved for the player
         let intentionIdx = 0;
 
-        const intentionUtilities = this._planner.computeIntentionUtilities(now);
+        const intentionUtilities = this._computeIntentionsScores(now);
+        const message: IntentionUpdateMessage = {
+            type: MessageType.INTENTION_UPDATE,
+            intentions: intentionUtilities,
+        };
+        await this._sendMessage(message);
+
         for (const [intention] of intentionUtilities) {
             if (!intentionToIdx.has(intention)) {
                 intentionToIdx.set(intention, intentionIdx);
@@ -252,6 +259,46 @@ export class Player {
     }
 
     /**
+     * Computes the utilities of the intentions that the player can execute.
+     *
+     * @param instant The instant at which the utilities should be computed.
+     *
+     * @returns
+     */
+    private _computeIntentionsScores(instant: Instant): [Intention, number][] {
+        const intentionUtilityPairs = this._planner.getIntentionUtilities();
+        const { movementDuration } = Config.getEnvironmentConfig();
+
+        return intentionUtilityPairs.map(([intention, utility, visits]) => {
+            const distance = this._environment.map.distance(this._position, intention.position);
+            const arrivalInstant = instant.add(movementDuration.multiply(distance));
+            let score = utility.getValueByInstant(arrivalInstant) / visits;
+
+            if (intention.type === IntentionType.PICKUP) {
+                let minEnemyDistance = Number.POSITIVE_INFINITY;
+                for (const agent of this._environment.getVisibleAgents()) {
+                    if (agent.random || this._team.has(agent.id)) {
+                        continue;
+                    }
+
+                    const enemyDistance = this._environment.map.distance(
+                        intention.position,
+                        agent.position,
+                    );
+                    minEnemyDistance = Math.min(minEnemyDistance, enemyDistance);
+                }
+
+                if (minEnemyDistance < distance) {
+                    const factor = 1 - 1 / (1 + minEnemyDistance);
+                    score *= factor ** 2;
+                }
+            }
+
+            return [intention, score];
+        });
+    }
+
+    /**
      * Gets the best move intention that the player can execute at the current state.
      * This method will:
      * 1. Get the most promising positions in the map, i.e., the positions whose expected reward
@@ -297,6 +344,35 @@ export class Player {
         return bestIntention;
     }
 
+    private async _sendMessage(message: Message) {
+        switch (message.type) {
+            case MessageType.PARCEL_SENSING: {
+                await Promise.all(
+                    Array.from(this._team.keys()).map((agentID) => {
+                        return this._messenger.sendParcelSensingMessage(agentID, message);
+                    }),
+                );
+                break;
+            }
+            case MessageType.AGENT_SENSING: {
+                await Promise.all(
+                    Array.from(this._team.keys()).map((agentID) => {
+                        return this._messenger.sendAgentSensingMessage(agentID, message);
+                    }),
+                );
+                break;
+            }
+            case MessageType.INTENTION_UPDATE: {
+                await Promise.all(
+                    Array.from(this._team.keys()).map((agentID) => {
+                        return this._messenger.sendIntentionUpdateMessage(agentID, message);
+                    }),
+                );
+                break;
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Event handlers
     // -----------------------------------------------------------------------
@@ -339,11 +415,7 @@ export class Player {
             parcels,
         };
 
-        await Promise.all(
-            Array.from(this._team.keys()).map((agentID) => {
-                return this._messenger.sendParcelSensingMessage(agentID, message);
-            }),
-        );
+        await this._sendMessage(message);
     }
 
     /**
@@ -378,11 +450,7 @@ export class Player {
             agents,
         };
 
-        await Promise.all(
-            Array.from(this._team.keys()).map((agentID) => {
-                return this._messenger.sendAgentSensingMessage(agentID, message);
-            }),
-        );
+        await this._sendMessage(message);
     }
 
     private _onRemoteAgentSensing(sender: AgentID, message: AgentSensingMessage) {

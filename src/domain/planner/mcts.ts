@@ -3,7 +3,7 @@
 //
 
 import { Environment } from "src/domain/environment";
-import { Config, Intention, Position, Utility } from "src/domain/structs";
+import { Config, Intention, ParcelID, Position, Utility } from "src/domain/structs";
 import { Instant } from "src/utils";
 import { MCTSNotStartedError } from "../errors";
 import { Node, State } from "./node";
@@ -16,13 +16,19 @@ export class MonteCarloTreeSearch {
 
     private readonly _enviroment: Environment;
 
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
+
     public constructor(enviroment: Environment) {
         this._enviroment = enviroment;
+
+        this._enviroment.onParcelsChange(this._onParcelsChange.bind(this));
     }
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Public methods
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
 
     /**
      * Starts the MCTS algorithm.
@@ -87,6 +93,7 @@ export class MonteCarloTreeSearch {
             throw new MCTSNotStartedError();
         }
 
+        this._root.state.arrivalInstant = Instant.now();
         this._root.state.position = position;
     }
 
@@ -112,32 +119,49 @@ export class MonteCarloTreeSearch {
         }
 
         this._root = child;
+        this._root.parent = null;
+        this._root.state.arrivalInstant = Instant.now();
     }
 
     /**
-     * Computes the utilities of the intentions that the agent can execute in the current state
-     * and at the given instant.
+     * Returns the utilities of the intentions that the agent can execute in the current state.
      *
-     * @param instant The instant at which the utilities should be computed. If not specified,
-     * the current instant is used.
-     *
-     * @returns An array of intention-utility pairs.
+     * @returns An array of intention-utility-visits tuples.
      */
-    public computeIntentionUtilities(instant?: Instant): [Intention, number][] {
+    public getIntentionUtilities(): [Intention, Utility, number][] {
         if (this._root === null) {
             throw new MCTSNotStartedError();
         }
 
-        const position = this._root.state.position;
-        const now = instant ?? Instant.now();
-        const { movementDuration } = Config.getEnvironmentConfig();
+        return this._root.children.map((child) => [
+            child.state.executedIntenion,
+            child.utility,
+            child.visits,
+        ]);
+    }
 
-        return this._root.children.map((child) => {
-            const distance = this._enviroment.map.distance(position, child.state.position);
-            const arrivalInstant = now.add(movementDuration.multiply(distance));
-            const utility = child.utility.getValueByInstant(arrivalInstant);
+    // ------------------------------------------------------------------------
+    // Private methods
+    // ------------------------------------------------------------------------
 
-            return [child.state.executedIntenion, utility];
-        });
+    private _onParcelsChange(
+        newFreeParcels: ParcelID[],
+        changedPositionParcels: [ParcelID, Position, Position][],
+        noLongerFreeParcels: [ParcelID, Position][],
+    ) {
+        if (this._root === null) {
+            return;
+        }
+
+        // For now, if there is a change in the parcels, we restart the search.
+        // TODO: find a way to update the tree without restarting the search.
+        const state: State = {
+            executedIntenion: Intention.pickup(this._root.state.position),
+            position: this._root.state.position,
+            arrivalInstant: Instant.now(),
+            pickedParcels: this._root.state.pickedParcels,
+        };
+
+        this._root = new Node(state, this._enviroment.getParcelPositions(), this._enviroment);
     }
 }

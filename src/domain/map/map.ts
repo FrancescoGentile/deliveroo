@@ -8,7 +8,10 @@ import { Graph, buildGraph } from "./graph";
 export class GridMap {
     private constructor(
         private readonly _graph: Graph,
-        private readonly _deliveryTiles: Tile[],
+        public readonly nRows: number,
+        public readonly nCols: number,
+        public readonly tiles: Tile[],
+        public readonly deliveryTiles: Tile[],
     ) {}
 
     /**
@@ -22,7 +25,14 @@ export class GridMap {
         const graph = await buildGraph(tiles);
         const deliveryTiles = tiles.filter((tile) => tile.delivery);
 
-        return new GridMap(graph, deliveryTiles);
+        let nRows = 0;
+        let nCols = 0;
+        for (const tile of tiles) {
+            nRows = Math.max(nRows, tile.position.row);
+            nCols = Math.max(nCols, tile.position.column);
+        }
+
+        return new GridMap(graph, nRows + 1, nCols + 1, tiles, deliveryTiles);
     }
 
     /**
@@ -128,7 +138,7 @@ export class GridMap {
      * @returns The closest delivery position.
      */
     public getClosestDeliveryPosition(position: Position): Position {
-        const distances = this._deliveryTiles
+        const distances = this.deliveryTiles
             .filter((tile) => this._graph.hasUndirectedEdge(position.hash(), tile.position.hash()))
             .map((tile) => [tile, this._distance(position, tile.position)] as const);
 
