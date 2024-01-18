@@ -2,17 +2,9 @@
 //
 //
 
-import {
-    Config,
-    Intention,
-    IntentionType,
-    Parcel,
-    ParcelID,
-    Position,
-    Utility,
-} from "src/domain/structs";
+import { BeliefSet } from "src/domain/beliefs";
+import { Config, Intention, IntentionType, ParcelID, Position, Utility } from "src/domain/structs";
 import { Instant } from "src/utils";
-import { Environment } from "../environment";
 import { UnsupportedIntentionTypeError } from "../errors";
 
 export interface State {
@@ -34,7 +26,7 @@ export class Node {
 
     public readonly state: State;
 
-    public readonly environment: Environment;
+    public readonly beliefs: BeliefSet;
 
     public readonly utility: Utility;
 
@@ -48,11 +40,11 @@ export class Node {
     public constructor(
         state: State,
         availablePositions: Position[],
-        environment: Environment,
+        environment: BeliefSet,
         parent: Node | null = null,
     ) {
         this.state = state;
-        this.environment = environment;
+        this.beliefs = environment;
         this.parent = parent;
 
         this.utility = new Utility(0, [], state.arrivalInstant);
@@ -61,15 +53,13 @@ export class Node {
 
         switch (state.executedIntenion.type) {
             case IntentionType.PICKUP: {
-                const closestDelivery = this.environment.map.getClosestDeliveryPosition(
-                    state.position,
-                );
+                const closestDelivery = this.beliefs.map.getClosestDeliveryPosition(state.position);
                 this.nextIntentions.push(Intention.putdown(closestDelivery));
                 break;
             }
             case IntentionType.PUTDOWN: {
                 for (const parcelID of state.pickedParcels) {
-                    this._reward += this.environment
+                    this._reward += this.beliefs
                         .getParcelByID(parcelID)!
                         .value.getValueByInstant(state.arrivalInstant);
                 }
@@ -133,7 +123,7 @@ export class Node {
         if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
             const tmp = utility.newWith(
                 this._reward,
-                this.state.pickedParcels.map((id) => this.environment.getParcelByID(id)!),
+                this.state.pickedParcels.map((id) => this.beliefs.getParcelByID(id)!),
                 this.state.arrivalInstant,
             );
 
@@ -181,9 +171,7 @@ export class Node {
                 }
 
                 pickedParcels.push(
-                    ...this.environment
-                        .getParcelsByPosition(nextIntention.position)
-                        .map((p) => p.id),
+                    ...this.beliefs.getParcelsByPosition(nextIntention.position).map((p) => p.id),
                 );
 
                 break;
@@ -193,7 +181,7 @@ export class Node {
             }
         }
 
-        const distance = this.environment.map.distance(this.state.position, nextIntention.position);
+        const distance = this.beliefs.map.distance(this.state.position, nextIntention.position);
         const { movementDuration } = Config.getEnvironmentConfig();
         const arrivalTime = this.state.arrivalInstant.add(movementDuration.multiply(distance));
 
@@ -204,7 +192,7 @@ export class Node {
             arrivalInstant: arrivalTime,
         };
 
-        const node = new Node(state, availablePositions, this.environment, this);
+        const node = new Node(state, availablePositions, this.beliefs, this);
         this.children.push(node);
 
         return node;
@@ -255,23 +243,21 @@ export class Node {
      * @returns the upper bound of the value of the node.
      */
     private _computeUpperBound(): number {
-        const closestDelivery = this.environment.map.getClosestDeliveryPosition(
-            this.state.position,
-        );
+        const closestDelivery = this.beliefs.map.getClosestDeliveryPosition(this.state.position);
         const { movementDuration } = Config.getEnvironmentConfig();
-        const distance = this.environment.map.distance(this.state.position, closestDelivery);
+        const distance = this.beliefs.map.distance(this.state.position, closestDelivery);
         const arrivalTime = this.state.arrivalInstant.add(movementDuration.multiply(distance));
 
         let upperBound = Number.EPSILON;
         for (const parcelID of this.state.pickedParcels) {
-            upperBound += this.environment
+            upperBound += this.beliefs
                 .getParcelByID(parcelID)!
                 .value.getValueByInstant(arrivalTime);
         }
 
         for (const intention of this.nextIntentions) {
             if (intention.type === IntentionType.PICKUP) {
-                for (const parcel of this.environment.getParcelsByPosition(intention.position)) {
+                for (const parcel of this.beliefs.getParcelsByPosition(intention.position)) {
                     upperBound += parcel.value.getValueByInstant(arrivalTime);
                 }
             }
@@ -323,10 +309,10 @@ export class Node {
             case IntentionType.PICKUP: {
                 const pickupPosition = intention.position;
                 const deliveryPosition =
-                    this.environment.map.getClosestDeliveryPosition(pickupPosition);
+                    this.beliefs.map.getClosestDeliveryPosition(pickupPosition);
                 const distance =
-                    this.environment.map.distance(this.state.position, pickupPosition) +
-                    this.environment.map.distance(pickupPosition, deliveryPosition);
+                    this.beliefs.map.distance(this.state.position, pickupPosition) +
+                    this.beliefs.map.distance(pickupPosition, deliveryPosition);
 
                 const { movementDuration } = Config.getEnvironmentConfig();
                 const arrivalTime = this.state.arrivalInstant.add(
@@ -335,22 +321,19 @@ export class Node {
 
                 let value = 0;
                 for (const parcelID of this.state.pickedParcels) {
-                    value += this.environment
+                    value += this.beliefs
                         .getParcelByID(parcelID)!
                         .value.getValueByInstant(arrivalTime);
                 }
 
-                for (const parcel of this.environment.getParcelsByPosition(pickupPosition)) {
+                for (const parcel of this.beliefs.getParcelsByPosition(pickupPosition)) {
                     value += parcel.value.getValueByInstant(arrivalTime);
                 }
 
                 return value;
             }
             case IntentionType.PUTDOWN: {
-                const distance = this.environment.map.distance(
-                    this.state.position,
-                    intention.position,
-                );
+                const distance = this.beliefs.map.distance(this.state.position, intention.position);
                 const { movementDuration } = Config.getEnvironmentConfig();
                 const arrivalTime = this.state.arrivalInstant.add(
                     movementDuration.multiply(distance),
@@ -358,7 +341,7 @@ export class Node {
 
                 let value = 0;
                 for (const parcelID of this.state.pickedParcels) {
-                    value += this.environment
+                    value += this.beliefs
                         .getParcelByID(parcelID)!
                         .value.getValueByInstant(arrivalTime);
                 }

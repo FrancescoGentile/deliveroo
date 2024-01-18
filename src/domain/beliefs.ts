@@ -9,7 +9,7 @@ import { NotImplementedError } from "./errors";
 import { GridMap } from "./map";
 import { Agent, AgentID, Config, Parcel, ParcelID, Position, Tile } from "./structs";
 
-export class Environment {
+export class BeliefSet {
     public readonly map: GridMap;
 
     // map each position associated to the index of the position in the array

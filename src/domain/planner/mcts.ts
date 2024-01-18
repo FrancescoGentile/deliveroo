@@ -2,7 +2,7 @@
 //
 //
 
-import { Environment } from "src/domain/environment";
+import { BeliefSet } from "src/domain/beliefs";
 import { Config, Intention, ParcelID, Position, Utility } from "src/domain/structs";
 import { Instant } from "src/utils";
 import { MCTSNotStartedError } from "../errors";
@@ -14,16 +14,16 @@ import { Node, State } from "./node";
 export class MonteCarloTreeSearch {
     private _root: Node | null = null;
 
-    private readonly _enviroment: Environment;
+    private readonly _beliefs: BeliefSet;
 
     // ------------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------------
 
-    public constructor(enviroment: Environment) {
-        this._enviroment = enviroment;
+    public constructor(enviroment: BeliefSet) {
+        this._beliefs = enviroment;
 
-        this._enviroment.onParcelsChange(this._onParcelsChange.bind(this));
+        this._beliefs.onParcelsChange(this._onParcelsChange.bind(this));
     }
 
     // ------------------------------------------------------------------------
@@ -51,7 +51,7 @@ export class MonteCarloTreeSearch {
             pickedParcels: [],
         };
 
-        this._root = new Node(state, this._enviroment.getParcelPositions(), this._enviroment);
+        this._root = new Node(state, this._beliefs.getParcelPositions(), this._beliefs);
 
         while (this._root !== null) {
             this.runIteration();
@@ -162,6 +162,6 @@ export class MonteCarloTreeSearch {
             pickedParcels: this._root.state.pickedParcels,
         };
 
-        this._root = new Node(state, this._enviroment.getParcelPositions(), this._enviroment);
+        this._root = new Node(state, this._beliefs.getParcelPositions(), this._beliefs);
     }
 }

@@ -5,7 +5,7 @@
 import math from "mathjs";
 import { HashMap, Instant } from "src/utils";
 import { Cryptographer } from "src/utils/crypto";
-import { Environment } from "./environment";
+import { BeliefSet } from "./beliefs";
 import { NotImplementedError } from "./errors";
 import { GridMap } from "./map";
 import { MonteCarloTreeSearch } from "./planner";
@@ -36,7 +36,7 @@ interface TeamMate {
 }
 
 export class Player {
-    private readonly _environment: Environment;
+    private readonly _beliefs: BeliefSet;
 
     private readonly _planner: MonteCarloTreeSearch;
 
@@ -66,7 +66,7 @@ export class Player {
         actuators: Actuators,
         messenger: Messenger,
     ) {
-        this._environment = new Environment(map);
+        this._beliefs = new BeliefSet(map);
         this._position = position;
         this._sensors = sensors;
         this._actuators = actuators;
@@ -83,7 +83,7 @@ export class Player {
             });
         }, config.helloInterval.milliseconds);
 
-        this._planner = new MonteCarloTreeSearch(this._environment);
+        this._planner = new MonteCarloTreeSearch(this._beliefs);
 
         // Add event listeners.
         this._sensors.onParcelSensing(this._onLocalParcelSensing.bind(this));
@@ -139,7 +139,7 @@ export class Player {
     private async _run() {
         while (this._shouldRun) {
             const intention = await this._getBestIntention();
-            const possibleDirections = this._environment.map.getNextDirection(
+            const possibleDirections = this._beliefs.map.getNextDirection(
                 this._position,
                 intention.position,
             );
@@ -270,18 +270,18 @@ export class Player {
         const { movementDuration } = Config.getEnvironmentConfig();
 
         return intentionUtilityPairs.map(([intention, utility, visits]) => {
-            const distance = this._environment.map.distance(this._position, intention.position);
+            const distance = this._beliefs.map.distance(this._position, intention.position);
             const arrivalInstant = instant.add(movementDuration.multiply(distance));
             let score = utility.getValueByInstant(arrivalInstant) / visits;
 
             if (intention.type === IntentionType.PICKUP) {
                 let minEnemyDistance = Number.POSITIVE_INFINITY;
-                for (const agent of this._environment.getVisibleAgents()) {
+                for (const agent of this._beliefs.getVisibleAgents()) {
                     if (agent.random || this._team.has(agent.id)) {
                         continue;
                     }
 
-                    const enemyDistance = this._environment.map.distance(
+                    const enemyDistance = this._beliefs.map.distance(
                         intention.position,
                         agent.position,
                     );
@@ -302,7 +302,7 @@ export class Player {
      * Gets the best move intention that the player can execute at the current state.
      * This method will:
      * 1. Get the most promising positions in the map, i.e., the positions whose expected reward
-     *  is the highest. For further details, {@link Environment.getPromisingPositions}.
+     *  is the highest. For further details, {@link BeliefSet.getPromisingPositions}.
      * 2. For each of these positions, compute the expected utility of moving to that position,
      * picking up a parcel with the previously computed expected reward, and then delivering the
      * parcel to the closest delivery point.
@@ -311,7 +311,7 @@ export class Player {
      * @returns The best move intention.
      */
     private _getBestMoveIntention(): Intention {
-        const promisingPositions = this._environment.getPromisingPositions(
+        const promisingPositions = this._beliefs.getPromisingPositions(
             this._position,
             Config.getPlayerConfig().numPromisingPositions,
         );
@@ -322,8 +322,8 @@ export class Player {
         const now = Instant.now();
         const { movementDuration } = Config.getEnvironmentConfig();
         for (const [position, value] of promisingPositions) {
-            const distanceToIntention = this._environment.map.distance(this._position, position);
-            const distanceToDelivery = this._environment.map.distanceToDelivery(position);
+            const distanceToIntention = this._beliefs.map.distance(this._position, position);
+            const distanceToDelivery = this._beliefs.map.distanceToDelivery(position);
             const totalDistance = distanceToIntention + distanceToDelivery;
 
             const arrivalInstant = now.add(movementDuration.multiply(totalDistance));
@@ -407,7 +407,7 @@ export class Player {
      * @param parcels The parcels that were sensed.
      */
     private async _onLocalParcelSensing(parcels: Parcel[]) {
-        this._environment.updateParcels(parcels, this._position);
+        this._beliefs.updateParcels(parcels, this._position);
 
         const message: ParcelSensingMessage = {
             type: MessageType.PARCEL_SENSING,
@@ -430,7 +430,7 @@ export class Player {
             return;
         }
 
-        this._environment.updateParcels(message.parcels, message.position);
+        this._beliefs.updateParcels(message.parcels, message.position);
         const mate = this._team.get(sender)!;
         mate.position = message.position;
         mate.lastHeard = Instant.now();
@@ -442,7 +442,7 @@ export class Player {
      * @param agents The agents that were sensed.
      */
     private async _onLocalAgentSensing(agents: Agent[]) {
-        this._environment.updateAgents(agents, this._position);
+        this._beliefs.updateAgents(agents, this._position);
 
         const message: AgentSensingMessage = {
             type: MessageType.AGENT_SENSING,
@@ -459,7 +459,7 @@ export class Player {
             return;
         }
 
-        this._environment.updateAgents(message.agents, message.position);
+        this._beliefs.updateAgents(message.agents, message.position);
         const mate = this._team.get(sender)!;
         mate.position = message.position;
         mate.lastHeard = Instant.now();
