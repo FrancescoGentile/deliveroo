@@ -19,32 +19,43 @@ function getConfig(): [PlayerConfig, string, string] {
         { name: "token", type: String },
         { name: "secret-key", type: String },
         { name: "secret-seed", type: String },
-        { name: "hello-interval", type: Number, defaultValue: 2000 },
-        { name: "max-last-heard", type: Number, defaultValue: 6000 },
-        { name: "start-iterations", type: Number, defaultValue: 10 },
-        { name: "num-promising-positions", type: Number, defaultValue: 5 },
-        { name: "gaussian-std", type: Number, defaultValue: 1.0 },
+        { name: "hello-interval", type: Number },
+        { name: "max-last-heard", type: Number },
+        { name: "start-iterations", type: Number },
+        { name: "num-promising-positions", type: Number },
+        { name: "gaussian-std", type: Number },
     ];
 
+    const defaultValues = new Map<string, number>();
+    defaultValues.set("hello-interval", 2000);
+    defaultValues.set("max-last-heard", 6000);
+    defaultValues.set("start-iterations", 10);
+    defaultValues.set("num-promising-positions", 5);
+    defaultValues.set("gaussian-std", 1.0);
+
     // first check if the corresponding environment variables are set
-    const envVars = new Map<string, string | number>();
+    const config = new Map<string, string | number>();
     for (const option of options) {
         const varName = option.name.toUpperCase().replace(/-/g, "_");
         if (process.env[varName]) {
-            envVars.set(option.name, option.type(process.env[varName]));
+            config.set(option.name, option.type(process.env[varName]));
         }
     }
 
     // then parse the command line arguments
     const cliArgs = commandLineArgs(options);
-
-    // if both are set, the command line arguments take precedence
-    const config = { ...envVars, ...cliArgs };
+    for (const arg in cliArgs) {
+        config.set(arg, cliArgs[arg]);
+    }
 
     // check that all options are set
     for (const option of options) {
         if (!config.get(option.name)) {
-            throw new Error(`Missing option ${option.name}`);
+            if (defaultValues.has(option.name)) {
+                config.set(option.name, defaultValues.get(option.name)!);
+            } else {
+                throw new Error(`Missing option ${option.name}`);
+            }
         }
     }
 

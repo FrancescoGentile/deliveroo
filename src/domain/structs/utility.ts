@@ -4,6 +4,7 @@
 
 import { HashMap, Instant } from "src/utils";
 import { Parcel, ParcelID } from "./parcel";
+import { DecayingValue } from "./value";
 
 /**
  * A utility.
@@ -13,13 +14,13 @@ import { Parcel, ParcelID } from "./parcel";
 export class Utility {
     private _value: number;
 
-    private _parcels: HashMap<ParcelID, [Parcel, number]>;
+    private _parcels: HashMap<ParcelID, [DecayingValue, number]>;
 
     private _time: Instant;
 
     public constructor(
         value: number,
-        parcels: Parcel[] | HashMap<ParcelID, [Parcel, number]>,
+        parcels: [ParcelID, DecayingValue][] | HashMap<ParcelID, [DecayingValue, number]>,
         time: Instant,
     ) {
         this._value = value;
@@ -27,8 +28,8 @@ export class Utility {
             this._parcels = parcels;
         } else {
             this._parcels = new HashMap();
-            for (const parcel of parcels) {
-                this._parcels.set(parcel.id, [parcel, 1]);
+            for (const [id, value] of parcels) {
+                this._parcels.set(id, [value, 1]);
             }
         }
         this._time = time;
@@ -47,8 +48,8 @@ export class Utility {
     public getValueByInstant(instant: Instant = Instant.now()): number {
         let valueDiff = 0;
 
-        for (const [parcel, count] of this._parcels.values()) {
-            valueDiff += parcel.value.getValueDiff(this._time, instant) * count;
+        for (const [value, count] of this._parcels.values()) {
+            valueDiff += value.getValueDiff(this._time, instant) * count;
         }
 
         const value = this._value - valueDiff;
@@ -66,16 +67,16 @@ export class Utility {
      * @param time The time to set
      * @returns The new utility
      */
-    public newWith(reward: number, parcels: Parcel[], time: Instant): Utility {
+    public newWith(reward: number, parcels: [ParcelID, DecayingValue][], time: Instant): Utility {
         const newValue = this._value + reward;
         const newParcels = this._parcels.copy();
 
-        for (const parcel of parcels) {
-            if (this._parcels.has(parcel.id)) {
-                const [oldParcel, count] = this._parcels.get(parcel.id)!;
-                newParcels.set(parcel.id, [oldParcel, count + 1]);
+        for (const [id, value] of parcels) {
+            if (this._parcels.has(id)) {
+                const [oldValue, count] = this._parcels.get(id)!;
+                newParcels.set(id, [oldValue, count + 1]);
             } else {
-                newParcels.set(parcel.id, [parcel, 1]);
+                newParcels.set(id, [value, 1]);
             }
         }
 

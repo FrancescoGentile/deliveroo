@@ -2,7 +2,6 @@
 //
 //
 
-import math from "mathjs";
 import { HashMap, Instant } from "src/utils";
 import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
@@ -58,7 +57,7 @@ export class Player {
         actuators: Actuators,
         messenger: Messenger,
     ) {
-        this._beliefs = new BeliefSet(map);
+        this._beliefs = new BeliefSet(map, id);
         this._position = position;
         this._sensors = sensors;
         this._actuators = actuators;
@@ -131,6 +130,8 @@ export class Player {
     private async _run() {
         while (this._shouldRun) {
             const intention = await this._getBestIntention();
+            console.log(intention);
+
             const possibleDirections = this._beliefs.map.getNextDirection(
                 this._position,
                 intention.position,
@@ -225,21 +226,25 @@ export class Player {
             }
         }
 
-        const matrix = math.zeros([mateIdx, intentionIdx]) as math.Matrix;
+        const matrix: number[][] = [];
+        for (let i = 0; i < mateIdx; i++) {
+            matrix.push(new Array(intentionIdx).fill(0));
+        }
+
         for (const [intention, utility] of intentionUtilities) {
-            matrix.set([0, intentionToIdx.get(intention)!], utility);
+            matrix[0][intentionToIdx.get(intention)!] = utility;
         }
 
         for (const [agentID, idx] of mateToIdx.entries()) {
             const mate = this._beliefs.getTeamMate(agentID);
             for (const [intention, utility] of mate.intentions) {
-                matrix.set([idx, intentionToIdx.get(intention)!], utility);
+                matrix[idx][intentionToIdx.get(intention)!] = utility;
             }
         }
 
-        const result = linearSumAssignment(matrix.toArray() as number[][], { maximaze: true });
+        const result = linearSumAssignment(matrix, { maximaze: true });
         const assignment = result.rowAssignments[0];
-        if (assignment >= 0 && matrix.get([0, assignment]) > 0) {
+        if (assignment >= 0 && matrix[0][assignment] > 0) {
             return idxToIntention.get(assignment)!;
         }
 

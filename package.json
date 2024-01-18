@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc && babel tmp_dist -d dist && rm -rf tmp_dist",
     "start": "node --experimental-loader=extensionless dist/index.js",
+    "dev-start": "tsc && babel tmp_dist -d dist && rm -rf tmp_dist && node --experimental-loader=extensionless dist/index.js",
     "pre-commit": "biome ci src/",
     "prepare": "husky install",
     "fix": "biome check --apply src/"

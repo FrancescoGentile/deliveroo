@@ -3,9 +3,8 @@
 //
 
 import EventEmitter from "eventemitter3";
-import math from "mathjs";
 import { HashMap, HashSet, Instant, kmax } from "src/utils";
-import { NotImplementedError, TeamMateNotFoundError } from "./errors";
+import { TeamMateNotFoundError } from "./errors";
 import { GridMap } from "./map";
 import { Agent, AgentID, Config, Intention, Parcel, ParcelID, Position, Tile } from "./structs";
 
@@ -17,6 +16,8 @@ export interface TeamMate {
 
 export class BeliefSet {
     public readonly map: GridMap;
+
+    public readonly myID: AgentID;
 
     // map each position associated to the index of the position in the array
     // of position weights
@@ -40,8 +41,9 @@ export class BeliefSet {
     // Constructor
     // ------------------------------------------------------------------------
 
-    public constructor(map: GridMap) {
+    public constructor(map: GridMap, id: AgentID) {
         this.map = map;
+        this.myID = id;
 
         for (const [idx, tile] of map.tiles.entries()) {
             this._positionToIdx.set(tile.position, idx);
@@ -143,7 +145,9 @@ export class BeliefSet {
             } else if (this._freeParcels.has(parcel.id)) {
                 // the parcel is no longer free
                 this._removeParcel(parcel.id);
-                noLongerFreeParcels.push([parcel.id, parcel.position]);
+                if (!parcel.agentID.equals(this.myID)) {
+                    noLongerFreeParcels.push([parcel.id, parcel.position]);
+                }
             }
         }
 
@@ -166,11 +170,11 @@ export class BeliefSet {
     // ------------------------------------------------------------------------
 
     public getVisibleAgents(): Agent[] {
-        throw new NotImplementedError();
+        return [];
     }
 
     public updateAgents(visibleAgents: Agent[], currentPosition: Position) {
-        throw new NotImplementedError();
+        // TODO: implement
     }
 
     // ------------------------------------------------------------------------
@@ -278,7 +282,7 @@ export class BeliefSet {
                         continue;
                     }
 
-                    weights[idx] -= math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
+                    weights[idx] -= Math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
                 }
             }
         }
@@ -398,7 +402,7 @@ function _getPositionWeights(tiles: Tile[], positionToIdx: HashMap<Position, num
                     continue;
                 }
 
-                weights[idx] += math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
+                weights[idx] += Math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
             }
         }
     }

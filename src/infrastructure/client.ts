@@ -327,15 +327,19 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
 
     private _setConfig(config: any) {
         let parcelGenerationInterval: Duration;
-        switch (typeof config.PARCEL_GENERATION_INTERVAL) {
+        switch (typeof config.PARCELS_GENERATION_INTERVAL) {
             case "string": {
-                const interval = parseInt(config.PARCEL_GENERATION_INTERVAL.slice(0, -1), 10);
-                parcelGenerationInterval = Duration.fromMilliseconds(interval * 1000);
+                if (config.PARCELS_GENERATION_INTERVAL === "infinite") {
+                    parcelGenerationInterval = Duration.fromMilliseconds(Number.POSITIVE_INFINITY);
+                } else {
+                    const interval = parseInt(config.PARCELS_GENERATION_INTERVAL.slice(0, -1), 10);
+                    parcelGenerationInterval = Duration.fromMilliseconds(interval * 1000);
+                }
                 break;
             }
             case "number": {
                 parcelGenerationInterval = Duration.fromMilliseconds(
-                    config.PARCEL_GENERATION_INTERVAL,
+                    config.PARCELS_GENERATION_INTERVAL,
                 );
                 break;
             }
@@ -377,8 +381,12 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         let parcelDecayingInterval: Duration;
         switch (typeof config.PARCEL_DECADING_INTERVAL) {
             case "string": {
-                const interval = parseInt(config.PARCEL_DECADING_INTERVAL.slice(0, -1), 10);
-                parcelDecayingInterval = Duration.fromMilliseconds(interval * 1000);
+                if (config.PARCEL_DECADING_INTERVAL === "infinite") {
+                    parcelDecayingInterval = Duration.fromMilliseconds(Number.POSITIVE_INFINITY);
+                } else {
+                    const interval = parseInt(config.PARCEL_DECADING_INTERVAL.slice(0, -1), 10);
+                    parcelDecayingInterval = Duration.fromMilliseconds(interval * 1000);
+                }
                 break;
             }
             case "number": {

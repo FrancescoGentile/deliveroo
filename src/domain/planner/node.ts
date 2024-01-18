@@ -3,7 +3,15 @@
 //
 
 import { BeliefSet } from "src/domain/beliefs";
-import { Config, Intention, IntentionType, ParcelID, Position, Utility } from "src/domain/structs";
+import {
+    Config,
+    DecayingValue,
+    Intention,
+    IntentionType,
+    ParcelID,
+    Position,
+    Utility,
+} from "src/domain/structs";
 import { Instant } from "src/utils";
 import { UnsupportedIntentionTypeError } from "../errors";
 
@@ -11,7 +19,7 @@ export interface State {
     readonly executedIntenion: Intention;
     position: Position;
     arrivalInstant: Instant;
-    readonly pickedParcels: ParcelID[];
+    readonly pickedParcels: [ParcelID, DecayingValue][];
 }
 
 /**
@@ -58,10 +66,8 @@ export class Node {
                 break;
             }
             case IntentionType.PUTDOWN: {
-                for (const parcelID of state.pickedParcels) {
-                    this._reward += this.beliefs
-                        .getParcelByID(parcelID)!
-                        .value.getValueByInstant(state.arrivalInstant);
+                for (const [, value] of state.pickedParcels) {
+                    this._reward += value.getValueByInstant(state.arrivalInstant);
                 }
                 break;
             }
@@ -123,7 +129,7 @@ export class Node {
         if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
             const tmp = utility.newWith(
                 this._reward,
-                this.state.pickedParcels.map((id) => this.beliefs.getParcelByID(id)!),
+                this.state.pickedParcels,
                 this.state.arrivalInstant,
             );
 
@@ -156,7 +162,7 @@ export class Node {
             .filter((intention, i) => i !== idx && intention.type === IntentionType.PICKUP)
             .map((intention) => intention.position);
 
-        let pickedParcels: ParcelID[];
+        let pickedParcels: [ParcelID, DecayingValue][];
 
         switch (nextIntention.type) {
             case IntentionType.PUTDOWN: {
@@ -171,7 +177,9 @@ export class Node {
                 }
 
                 pickedParcels.push(
-                    ...this.beliefs.getParcelsByPosition(nextIntention.position).map((p) => p.id),
+                    ...this.beliefs
+                        .getParcelsByPosition(nextIntention.position)
+                        .map((p) => [p.id, p.value] as [ParcelID, DecayingValue]),
                 );
 
                 break;
@@ -249,10 +257,8 @@ export class Node {
         const arrivalTime = this.state.arrivalInstant.add(movementDuration.multiply(distance));
 
         let upperBound = Number.EPSILON;
-        for (const parcelID of this.state.pickedParcels) {
-            upperBound += this.beliefs
-                .getParcelByID(parcelID)!
-                .value.getValueByInstant(arrivalTime);
+        for (const [, value] of this.state.pickedParcels) {
+            upperBound += value.getValueByInstant(arrivalTime);
         }
 
         for (const intention of this.nextIntentions) {
@@ -320,10 +326,8 @@ export class Node {
                 );
 
                 let value = 0;
-                for (const parcelID of this.state.pickedParcels) {
-                    value += this.beliefs
-                        .getParcelByID(parcelID)!
-                        .value.getValueByInstant(arrivalTime);
+                for (const [, parcelValue] of this.state.pickedParcels) {
+                    value += parcelValue.getValueByInstant(arrivalTime);
                 }
 
                 for (const parcel of this.beliefs.getParcelsByPosition(pickupPosition)) {
@@ -340,10 +344,8 @@ export class Node {
                 );
 
                 let value = 0;
-                for (const parcelID of this.state.pickedParcels) {
-                    value += this.beliefs
-                        .getParcelByID(parcelID)!
-                        .value.getValueByInstant(arrivalTime);
+                for (const [, parcelValue] of this.state.pickedParcels) {
+                    value += parcelValue.getValueByInstant(arrivalTime);
                 }
 
                 return value;

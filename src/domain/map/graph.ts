@@ -60,8 +60,8 @@ export async function buildGraph(tiles: Tile[]): Promise<Graph> {
         const nodes = component.nodes();
         for (const [i, node] of nodes.entries()) {
             for (const [j, neighbor] of nodes.entries()) {
-                if (!component.hasUndirectedEdge(node, neighbor)) {
-                    component.addUndirectedEdge(node, neighbor, {
+                if (!graph.hasUndirectedEdge(node, neighbor)) {
+                    graph.addUndirectedEdge(node, neighbor, {
                         weight: distance[i][j],
                     });
                 }
@@ -81,42 +81,55 @@ interface Edge {
 }
 
 function findConnectedComponents(graph: Graph): Graph[] {
-    const components: Graph[] = [];
-
-    const visited = new Set<string>();
-
+    const id = new Map<string, number>();
     graph.forEachNode((node) => {
-        if (!visited.has(node)) {
-            const component = new UndirectedGraph<Tile, Edge>();
-            const queue = [node];
-            visited.add(node);
+        id.set(node, 0);
+    });
 
-            while (queue.length > 0) {
-                const current = queue.pop()!;
-                if (!component.hasNode(current)) {
-                    component.addNode(current, graph.getNodeAttributes(current)!);
-                }
-                graph.forEachNeighbor(current, (neighbor) => {
-                    if (!visited.has(neighbor)) {
-                        visited.add(neighbor);
-                        component.addNode(neighbor, graph.getNodeAttributes(neighbor)!);
-                        if (!component.hasUndirectedEdge(current, neighbor)) {
-                            component.addUndirectedEdge(
-                                current,
-                                neighbor,
-                                graph.getEdgeAttributes(current, neighbor)!,
-                            );
-                        }
-                        queue.push(neighbor);
-                    }
-                });
-            }
-
-            components.push(component);
+    let counter = 0;
+    graph.forEachNode((node) => {
+        if (id.get(node) === 0) {
+            counter += 1;
+            ccdfs(graph, counter, node, id);
         }
     });
 
+    const components: Graph[] = [];
+    for (let i = 0; i < counter; i += 1) {
+        components.push(new UndirectedGraph<Tile, Edge>());
+    }
+
+    graph.forEachNode((node) => {
+        const component = components[id.get(node)! - 1];
+        if (!component.hasNode(node)) {
+            component.addNode(node, graph.getNodeAttributes(node));
+        }
+
+        graph.forEachNeighbor(node, (neighbor) => {
+            if (!component.hasNode(neighbor)) {
+                component.addNode(neighbor, graph.getNodeAttributes(neighbor));
+            }
+
+            if (!component.hasUndirectedEdge(node, neighbor)) {
+                component.addUndirectedEdge(
+                    node,
+                    neighbor,
+                    graph.getEdgeAttributes(node, neighbor),
+                );
+            }
+        });
+    });
+
     return components;
+}
+
+function ccdfs(graph: Graph, counter: number, node: string, id: Map<string, number>) {
+    id.set(node, counter);
+    graph.forEachNeighbor(node, (neighbor) => {
+        if (id.get(neighbor) === 0) {
+            ccdfs(graph, counter, neighbor, id);
+        }
+    });
 }
 
 function computeAdjacencyMatrix(graph: Graph): number[][] {
