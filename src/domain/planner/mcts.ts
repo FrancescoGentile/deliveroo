@@ -153,6 +153,15 @@ export class MonteCarloTreeSearch {
             return;
         }
 
+        if (
+            newFreeParcels.length > 0 &&
+            changedPositionParcels.length === 0 &&
+            noLongerFreeParcels.length === 0
+        ) {
+            this._root.addNewFreeParcels(newFreeParcels);
+            return;
+        }
+
         // For now, if there is a change in the parcels, we restart the search.
         // TODO: find a way to update the tree without restarting the search.
         const state: State = {

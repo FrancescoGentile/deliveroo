@@ -45,6 +45,10 @@ export class Node {
         return this._visits;
     }
 
+    // ------------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------------
+
     public constructor(
         state: State,
         availablePositions: Position[],
@@ -79,9 +83,9 @@ export class Node {
         this._sortIntentions();
     }
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Public methods
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
 
     /**
      * Returns true if the node is fully expanded.
@@ -145,9 +149,27 @@ export class Node {
         }
     }
 
-    // -----------------------------------------------------------------------
+    public addNewFreeParcels(parcels: ParcelID[]) {
+        const newPositions = new Set<Position>();
+        for (const parcel of parcels) {
+            const position = this.beliefs.getParcelByID(parcel)!.position;
+            newPositions.add(position);
+        }
+
+        const idx = this.children.length;
+        const newIntentions = Array.from(newPositions).map((pos) => Intention.pickup(pos));
+        this.nextIntentions.push(...newIntentions);
+
+        this._sortIntentions(idx);
+
+        for (const child of this.children) {
+            child.addNewFreeParcels(parcels);
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // Private methods
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
 
     /**
      * Expands the node by adding a new child.
