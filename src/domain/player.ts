@@ -29,20 +29,12 @@ import {
 
 import { linearSumAssignment } from "linear-sum-assignment";
 
-interface TeamMate {
-    position: Position;
-    lastHeard: Instant;
-    intentions: [Intention, number][];
-}
-
 export class Player {
     private readonly _beliefs: BeliefSet;
 
     private readonly _planner: MonteCarloTreeSearch;
 
     private _position: Position;
-
-    private readonly _team: HashMap<AgentID, TeamMate> = new HashMap();
 
     private readonly _sensors: Sensors;
 
@@ -216,7 +208,7 @@ export class Player {
         }
 
         mateIdx += 1;
-        for (const [agentID, mate] of this._team.entries()) {
+        for (const [agentID, mate] of this._beliefs.getTeamMates()) {
             if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
                 continue;
             }
@@ -239,7 +231,7 @@ export class Player {
         }
 
         for (const [agentID, idx] of mateToIdx.entries()) {
-            const mate = this._team.get(agentID)!;
+            const mate = this._beliefs.getTeamMate(agentID);
             for (const [intention, utility] of mate.intentions) {
                 matrix.set([idx, intentionToIdx.get(intention)!], utility);
             }
@@ -277,7 +269,7 @@ export class Player {
             if (intention.type === IntentionType.PICKUP) {
                 let minEnemyDistance = Number.POSITIVE_INFINITY;
                 for (const agent of this._beliefs.getVisibleAgents()) {
-                    if (agent.random || this._team.has(agent.id)) {
+                    if (agent.random || this._beliefs.isTeamMate(agent.id)) {
                         continue;
                     }
 
@@ -345,10 +337,11 @@ export class Player {
     }
 
     private async _sendMessage(message: Message) {
+        const mates = this._beliefs.getTeamMates().map(([id]) => id);
         switch (message.type) {
             case MessageType.PARCEL_SENSING: {
                 await Promise.all(
-                    Array.from(this._team.keys()).map((agentID) => {
+                    mates.map((agentID) => {
                         return this._messenger.sendParcelSensingMessage(agentID, message);
                     }),
                 );
@@ -356,7 +349,7 @@ export class Player {
             }
             case MessageType.AGENT_SENSING: {
                 await Promise.all(
-                    Array.from(this._team.keys()).map((agentID) => {
+                    mates.map((agentID) => {
                         return this._messenger.sendAgentSensingMessage(agentID, message);
                     }),
                 );
@@ -364,7 +357,7 @@ export class Player {
             }
             case MessageType.INTENTION_UPDATE: {
                 await Promise.all(
-                    Array.from(this._team.keys()).map((agentID) => {
+                    mates.map((agentID) => {
                         return this._messenger.sendIntentionUpdateMessage(agentID, message);
                     }),
                 );
@@ -384,16 +377,10 @@ export class Player {
      * @param message The message.
      */
     private _onHello(sender: AgentID, message: HelloMessage) {
-        if (this._team.has(sender)) {
-            const mate = this._team.get(sender)!;
-            mate.lastHeard = Instant.now();
+        if (this._beliefs.isTeamMate(sender)) {
+            this._beliefs.updateTeamMateActivity(sender);
         } else if (this._cryptographer.decrypt(message.ciphered_id) === sender.serialize()) {
-            const mate: TeamMate = {
-                position: new Position(0, 0), // Here we can use any position since it will be updated later.
-                lastHeard: Instant.now(),
-                intentions: [],
-            };
-            this._team.set(sender, mate);
+            this._beliefs.addTeamMate(sender);
         } else {
             // The sender is not who it claims to be. This could be due to an error or a malicious agent.
             // Since this is a demo, we just ignore the message, but in a real scenario we should
@@ -425,15 +412,13 @@ export class Player {
      * @param message The message.
      */
     private _onRemoteParcelSensing(sender: AgentID, message: ParcelSensingMessage) {
-        if (!this._team.has(sender)) {
+        if (!this._beliefs.isTeamMate(sender)) {
             // If we don't know the sender, we ignore the message since it may be a malicious agent.
             return;
         }
 
         this._beliefs.updateParcels(message.parcels, message.position);
-        const mate = this._team.get(sender)!;
-        mate.position = message.position;
-        mate.lastHeard = Instant.now();
+        this._beliefs.updateTeamMatePosition(sender, message.position);
     }
 
     /**
@@ -454,15 +439,13 @@ export class Player {
     }
 
     private _onRemoteAgentSensing(sender: AgentID, message: AgentSensingMessage) {
-        if (!this._team.has(sender)) {
+        if (!this._beliefs.isTeamMate(sender)) {
             // If we don't know the sender, we ignore the message since it may be a malicious agent.
             return;
         }
 
         this._beliefs.updateAgents(message.agents, message.position);
-        const mate = this._team.get(sender)!;
-        mate.position = message.position;
-        mate.lastHeard = Instant.now();
+        this._beliefs.updateTeamMatePosition(sender, message.position);
     }
 
     /**
@@ -472,13 +455,11 @@ export class Player {
      * @param message The message.
      */
     private _onRemoteIntentionUpdate(sender: AgentID, message: IntentionUpdateMessage) {
-        if (!this._team.has(sender)) {
+        if (!this._beliefs.isTeamMate(sender)) {
             // If we don't know the sender, we ignore the message since it may be a malicious agent.
             return;
         }
 
-        const mate = this._team.get(sender)!;
-        mate.lastHeard = Instant.now();
-        mate.intentions = message.intentions;
+        this._beliefs.updateTeamMateIntentions(sender, message.intentions);
     }
 }

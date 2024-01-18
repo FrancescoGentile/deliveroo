@@ -36,3 +36,9 @@ export class UnknownMessageError extends Error {
         super(`Unknown message: ${message}.`);
     }
 }
+
+export class TeamMateNotFoundError extends Error {
+    public constructor() {
+        super("Team mate not found.");
+    }
+}

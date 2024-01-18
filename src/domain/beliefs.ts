@@ -4,10 +4,16 @@
 
 import EventEmitter from "eventemitter3";
 import math from "mathjs";
-import { HashMap, HashSet, kmax } from "src/utils";
-import { NotImplementedError } from "./errors";
+import { HashMap, HashSet, Instant, kmax } from "src/utils";
+import { NotImplementedError, TeamMateNotFoundError } from "./errors";
 import { GridMap } from "./map";
-import { Agent, AgentID, Config, Parcel, ParcelID, Position, Tile } from "./structs";
+import { Agent, AgentID, Config, Intention, Parcel, ParcelID, Position, Tile } from "./structs";
+
+export interface TeamMate {
+    position: Position;
+    lastHeard: Instant;
+    intentions: [Intention, number][];
+}
 
 export class BeliefSet {
     public readonly map: GridMap;
@@ -21,6 +27,8 @@ export class BeliefSet {
     private readonly _freeParcels: HashMap<ParcelID, Parcel> = new HashMap();
 
     private readonly _positionToParcelIDs: HashMap<Position, ParcelID[]> = new HashMap();
+
+    private readonly _teamMates: HashMap<AgentID, TeamMate> = new HashMap();
 
     private readonly _agents: HashMap<AgentID, Agent> = new HashMap();
 
@@ -44,7 +52,7 @@ export class BeliefSet {
     }
 
     // ------------------------------------------------------------------------
-    // Public methods
+    // Parcel management
     // ------------------------------------------------------------------------
 
     /**
@@ -82,50 +90,6 @@ export class BeliefSet {
      */
     public getParcelPositions(): Position[] {
         return Array.from(this._positionToParcelIDs.keys());
-    }
-
-    /**
-     * Computes the positions that have an hypothetical high value and are thus worth exploring.
-     * The hypothetical value of a position is high if it is close to spawn points and far from
-     * the current position of the agents (including the current agent).
-     *
-     * @param currentPosition The current position of the agent.
-     * @param k The number of positions to return.
-     *
-     * @returns The best positions and their hypothetical value (not sorted)
-     */
-    public getPromisingPositions(currentPosition: Position, k: number): [Position, number][] {
-        const weights = [...this._positionWeights];
-        const agentsPositions = [...this._visibleAgents.map((a) => a.position), currentPosition];
-
-        const { agentRadius, parcelRewardMean } = Config.getEnvironmentConfig();
-        const { gaussianStd } = Config.getPlayerConfig();
-
-        for (const position of agentsPositions) {
-            for (let i = -agentRadius; i <= agentRadius; i += 1) {
-                for (let j = -agentRadius; j <= agentRadius; j += 1) {
-                    const level = Math.abs(i) + Math.abs(j);
-                    if (level > agentRadius) {
-                        continue;
-                    }
-
-                    const pos = new Position(position.row + i, position.column + j);
-                    const idx = this._positionToIdx.get(pos);
-                    if (idx === undefined) {
-                        continue;
-                    }
-
-                    weights[idx] -= math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
-                }
-            }
-        }
-
-        const [values, indexes] = kmax(weights, k);
-        return values.map((v, i) => [this.map.tiles[indexes[i]].position, v * parcelRewardMean]);
-    }
-
-    public getVisibleAgents(): Agent[] {
-        throw new NotImplementedError();
     }
 
     public updateParcels(visibleParcels: Parcel[], currentPosition: Position) {
@@ -197,8 +161,130 @@ export class BeliefSet {
         }
     }
 
+    // ------------------------------------------------------------------------
+    // Agent management
+    // ------------------------------------------------------------------------
+
+    public getVisibleAgents(): Agent[] {
+        throw new NotImplementedError();
+    }
+
     public updateAgents(visibleAgents: Agent[], currentPosition: Position) {
         throw new NotImplementedError();
+    }
+
+    // ------------------------------------------------------------------------
+    // Team management
+    // ------------------------------------------------------------------------
+
+    public isTeamMate(agentID: AgentID): boolean {
+        return this._teamMates.has(agentID);
+    }
+
+    public getTeamMate(agentID: AgentID): TeamMate {
+        const teamMate = this._teamMates.get(agentID);
+        if (teamMate === undefined) {
+            throw new TeamMateNotFoundError();
+        }
+
+        return teamMate;
+    }
+
+    public getTeamMates(): [AgentID, TeamMate][] {
+        return [...this._teamMates.entries()];
+    }
+
+    public addTeamMate(agentID: AgentID) {
+        if (this._teamMates.has(agentID)) {
+            throw new Error("Agent already in the team.");
+        }
+
+        this._teamMates.set(agentID, {
+            position: new Position(0, 0), // Here we can use any position since it will be updated later.
+            lastHeard: Instant.now(),
+            intentions: [],
+        });
+    }
+
+    public removeTeamMate(agentID: AgentID) {
+        if (!this._teamMates.has(agentID)) {
+            throw new TeamMateNotFoundError();
+        }
+
+        this._teamMates.delete(agentID);
+    }
+
+    public updateTeamMateActivity(agentID: AgentID) {
+        const teamMate = this._teamMates.get(agentID);
+        if (teamMate === undefined) {
+            throw new TeamMateNotFoundError();
+        }
+
+        teamMate.lastHeard = Instant.now();
+    }
+
+    public updateTeamMatePosition(agentID: AgentID, position: Position) {
+        const teamMate = this._teamMates.get(agentID);
+        if (teamMate === undefined) {
+            throw new TeamMateNotFoundError();
+        }
+
+        teamMate.position = position;
+        teamMate.lastHeard = Instant.now();
+    }
+
+    public updateTeamMateIntentions(agentID: AgentID, intentions: [Intention, number][]) {
+        const teamMate = this._teamMates.get(agentID);
+        if (teamMate === undefined) {
+            throw new TeamMateNotFoundError();
+        }
+
+        teamMate.intentions = intentions;
+        teamMate.lastHeard = Instant.now();
+    }
+
+    // ------------------------------------------------------------------------
+    // Other public methods
+    // ------------------------------------------------------------------------
+
+    /**
+     * Computes the positions that have an hypothetical high value and are thus worth exploring.
+     * The hypothetical value of a position is high if it is close to spawn points and far from
+     * the current position of the agents (including the current agent).
+     *
+     * @param currentPosition The current position of the agent.
+     * @param k The number of positions to return.
+     *
+     * @returns The best positions and their hypothetical value (not sorted)
+     */
+    public getPromisingPositions(currentPosition: Position, k: number): [Position, number][] {
+        const weights = [...this._positionWeights];
+        const agentsPositions = [...this._visibleAgents.map((a) => a.position), currentPosition];
+
+        const { agentRadius, parcelRewardMean } = Config.getEnvironmentConfig();
+        const { gaussianStd } = Config.getPlayerConfig();
+
+        for (const position of agentsPositions) {
+            for (let i = -agentRadius; i <= agentRadius; i += 1) {
+                for (let j = -agentRadius; j <= agentRadius; j += 1) {
+                    const level = Math.abs(i) + Math.abs(j);
+                    if (level > agentRadius) {
+                        continue;
+                    }
+
+                    const pos = new Position(position.row + i, position.column + j);
+                    const idx = this._positionToIdx.get(pos);
+                    if (idx === undefined) {
+                        continue;
+                    }
+
+                    weights[idx] -= math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
+                }
+            }
+        }
+
+        const [values, indexes] = kmax(weights, k);
+        return values.map((v, i) => [this.map.tiles[indexes[i]].position, v * parcelRewardMean]);
     }
 
     // ------------------------------------------------------------------------
