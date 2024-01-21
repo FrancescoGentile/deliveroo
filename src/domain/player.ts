@@ -2,7 +2,7 @@
 //
 //
 
-import { HashMap, Instant } from "src/utils";
+import { HashMap, HashSet, Instant } from "src/utils";
 import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
 import { NotImplementedError } from "./errors";
@@ -15,6 +15,7 @@ import {
     AgentSensingMessage,
     Config,
     DecayingValue,
+    Direction,
     HelloMessage,
     Intention,
     IntentionType,
@@ -42,6 +43,10 @@ export class Player {
     private readonly _messenger: Messenger;
 
     private readonly _cryptographer: Cryptographer;
+
+    private _actualPaths: HashMap<Intention, [Position, Direction[] | null]> = new HashMap();
+
+    private _blockedBottlenecks: [HashSet<Position>, Intention][] = [];
 
     private _shouldRun = false;
 
@@ -83,6 +88,8 @@ export class Player {
         this._messenger.onHelloMessage(this._onHello.bind(this));
         this._messenger.onParcelSensingMessage(this._onRemoteParcelSensing.bind(this));
         this._messenger.onIntentionUpdateMessage(this._onRemoteIntentionUpdate.bind(this));
+
+        this._beliefs.onOccupiedPositionsChange(() => this._onOccupiedPositionsChange());
     }
 
     // -----------------------------------------------------------------------
@@ -132,10 +139,32 @@ export class Player {
             const intention = await this._getBestIntention();
             console.log(intention);
 
-            const possibleDirections = this._beliefs.map.getNextDirection(
-                this._position,
-                intention.position,
-            );
+            let possibleDirections: Direction[];
+            if (this._actualPaths.has(intention)) {
+                const [position, path] = this._actualPaths.get(intention)!;
+
+                if (path === null) {
+                    throw new Error("Path is null");
+                }
+
+                if (this._position.equals(position)) {
+                    possibleDirections = [path.shift()!];
+                    this._actualPaths.set(intention, [
+                        position.moveTo(possibleDirections[0]),
+                        path,
+                    ]);
+                } else {
+                    possibleDirections = this._beliefs.map.getNextDirection(
+                        this._position,
+                        position,
+                    )!;
+                }
+            } else {
+                possibleDirections = this._beliefs.map.getNextDirection(
+                    this._position,
+                    intention.position,
+                )!;
+            }
 
             let hasMoved = false;
             for (const direction of possibleDirections) {
@@ -148,10 +177,19 @@ export class Player {
             }
 
             if (!hasMoved) {
-                throw new NotImplementedError();
+                const path = this._beliefs.recomputePath(this._position, intention.position);
+                this._actualPaths.set(intention, [this._position, path]);
+
+                const bottleneck = this._beliefs.computeBottleneck(
+                    this._position,
+                    intention.position,
+                );
+
+                this._blockedBottlenecks.push([bottleneck, intention]);
             }
 
             if (this._position.equals(intention.position)) {
+                this._actualPaths.delete(intention);
                 switch (intention.type) {
                     case IntentionType.PICKUP: {
                         await this._actuators.pickup();
@@ -371,6 +409,34 @@ export class Player {
         }
     }
 
+    private _onOccupiedPositionsChange() {
+        const oldActualPaths = this._actualPaths;
+        const oldBlockedBottlenecks = this._blockedBottlenecks;
+
+        const newActualPaths: HashMap<Intention, [Position, Direction[] | null]> = new HashMap();
+        const newBlockedBottlenecks: [HashSet<Position>, Intention][] = [];
+
+        const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
+
+        for (const agent of this._beliefs.getVisibleAgents()) {
+            for (const [idx, [bottleneck, intention]] of oldBlockedBottlenecks.entries()) {
+                if (bottleneck.has(agent.position)) {
+                    if (oldActualPaths.has(intention)) {
+                        newActualPaths.set(intention, oldActualPaths.get(intention)!);
+
+                        if (!alreadyAdded[idx]) {
+                            newBlockedBottlenecks.push([bottleneck, intention]);
+                            alreadyAdded[idx] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        this._actualPaths = newActualPaths;
+        this._blockedBottlenecks = newBlockedBottlenecks;
+    }
+
     // -----------------------------------------------------------------------
     // Event handlers
     // -----------------------------------------------------------------------
@@ -432,7 +498,7 @@ export class Player {
      * @param agents The agents that were sensed.
      */
     private async _onLocalAgentSensing(agents: Agent[]) {
-        this._beliefs.updateAgents(agents, this._position);
+        this._beliefs.updateAgents(agents, this._position, this._beliefs.myID);
 
         const message: AgentSensingMessage = {
             type: MessageType.AGENT_SENSING,
@@ -449,7 +515,7 @@ export class Player {
             return;
         }
 
-        this._beliefs.updateAgents(message.agents, message.position);
+        this._beliefs.updateAgents(message.agents, message.position, sender);
         this._beliefs.updateTeamMatePosition(sender, message.position);
     }
 
