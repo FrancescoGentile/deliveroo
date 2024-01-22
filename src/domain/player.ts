@@ -23,6 +23,7 @@ import {
     Message,
     MessageType,
     Parcel,
+    ParcelID,
     ParcelSensingMessage,
     Position,
 } from "./structs";
@@ -281,6 +282,29 @@ export class Player {
         }
 
         const result = linearSumAssignment(matrix, { maximaze: true });
+
+        const newParcelDiscounts = new HashMap<ParcelID, number>();
+        const columnAssignments = result.columnAssignments;
+        const { discountFactor } = Config.getPlayerConfig();
+        for (let i = 0; i < columnAssignments.length; i += 1) {
+            const intention = idxToIntention.get(i)!;
+            if (intention.type !== IntentionType.PICKUP) {
+                continue;
+            }
+
+            const assignedTo = columnAssignments[i];
+            if (assignedTo < 0) {
+                continue;
+            }
+
+            const factor = assignedTo > 0 ? discountFactor : -discountFactor;
+            for (const parcel of this._beliefs.getParcelsByPosition(intention.position)) {
+                const oldFactor = this._beliefs.parcelDiscounts.get(parcel.id) ?? 1;
+                newParcelDiscounts.set(parcel.id, oldFactor * factor);
+            }
+        }
+        this._beliefs.parcelDiscounts = newParcelDiscounts;
+
         const assignment = result.rowAssignments[0];
         if (assignment >= 0 && matrix[0][assignment] > 0) {
             return idxToIntention.get(assignment)!;
@@ -307,7 +331,8 @@ export class Player {
         return intentionUtilityPairs.map(([intention, utility, visits]) => {
             const distance = this._beliefs.map.distance(this._position, intention.position);
             const arrivalInstant = instant.add(movementDuration.multiply(distance));
-            let score = utility.getValueByInstant(arrivalInstant) / visits;
+            let score = utility.getValueByInstant(arrivalInstant, this._beliefs.parcelDiscounts);
+            score /= visits;
 
             if (intention.type === IntentionType.PICKUP) {
                 let minEnemyDistance = Number.POSITIVE_INFINITY;

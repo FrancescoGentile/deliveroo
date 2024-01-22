@@ -24,6 +24,7 @@ function getConfig(): [PlayerConfig, string, string] {
         { name: "start-iterations", type: Number },
         { name: "num-promising-positions", type: Number },
         { name: "gaussian-std", type: Number },
+        { name: "discount-factor", type: Number },
     ];
 
     const defaultValues = new Map<string, number>();
@@ -32,6 +33,7 @@ function getConfig(): [PlayerConfig, string, string] {
     defaultValues.set("start-iterations", 10);
     defaultValues.set("num-promising-positions", 5);
     defaultValues.set("gaussian-std", 1.0);
+    defaultValues.set("discount-factor", 1.1);
 
     // first check if the corresponding environment variables are set
     const config = new Map<string, string | number>();
@@ -67,6 +69,7 @@ function getConfig(): [PlayerConfig, string, string] {
         startIterations: config.get("start-iterations") as number,
         numPromisingPositions: config.get("num-promising-positions") as number,
         gaussianStd: config.get("gaussian-std") as number,
+        discountFactor: config.get("discount-factor") as number,
     };
 
     return [playerConfig, config.get("host") as string, config.get("token") as string];

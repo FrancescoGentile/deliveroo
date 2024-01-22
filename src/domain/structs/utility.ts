@@ -45,11 +45,13 @@ export class Utility {
      * @param instant The instance to compute the value at. Defaults to the current time.
      * @returns The value.
      */
-    public getValueByInstant(instant: Instant = Instant.now()): number {
+    public getValueByInstant(instant: Instant, discounts?: HashMap<ParcelID, number>): number {
         let valueDiff = 0;
 
-        for (const [value, count] of this._parcels.values()) {
-            valueDiff += value.getValueDiff(this._time, instant) * count;
+        for (const [id, [value, count]] of this._parcels.entries()) {
+            const discount = discounts?.get(id) ?? 1;
+            const diff = value.getValueDiff(this._time, instant) * discount;
+            valueDiff += Math.min(diff, value.getMaxValue()) * count;
         }
 
         const value = this._value - valueDiff;

@@ -50,6 +50,10 @@ export class DecayingValue {
         return first - second;
     }
 
+    public getMaxValue(): number {
+        return this._value;
+    }
+
     public toString(): string {
         const value = this.getValueByInstant(Instant.now());
         return `DecayingValue(${value})`;

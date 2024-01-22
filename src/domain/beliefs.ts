@@ -52,6 +52,8 @@ export class BeliefSet {
 
     private readonly _broker: EventEmitter = new EventEmitter();
 
+    public parcelDiscounts: HashMap<ParcelID, number> = new HashMap();
+
     // ------------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------------

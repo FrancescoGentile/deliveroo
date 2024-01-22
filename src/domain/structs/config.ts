@@ -26,6 +26,7 @@ export interface PlayerConfig {
     readonly startIterations: number;
     readonly numPromisingPositions: number;
     readonly gaussianStd: number;
+    readonly discountFactor: number;
 }
 
 export class Config {
