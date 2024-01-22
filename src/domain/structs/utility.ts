@@ -12,27 +12,27 @@ import { DecayingValue } from "./value";
  * This represents the potential value of a set of parcels at a given instance of time.
  */
 export class Utility {
-    private _value: number;
+    public value: number;
 
-    private _parcels: HashMap<ParcelID, [DecayingValue, number]>;
+    public parcels: HashMap<ParcelID, [DecayingValue, number]>;
 
-    private _time: Instant;
+    public time: Instant;
 
     public constructor(
         value: number,
         parcels: [ParcelID, DecayingValue][] | HashMap<ParcelID, [DecayingValue, number]>,
         time: Instant,
     ) {
-        this._value = value;
+        this.value = value;
         if (parcels instanceof HashMap) {
-            this._parcels = parcels;
+            this.parcels = parcels;
         } else {
-            this._parcels = new HashMap();
+            this.parcels = new HashMap();
             for (const [id, value] of parcels) {
-                this._parcels.set(id, [value, 1]);
+                this.parcels.set(id, [value, 1]);
             }
         }
-        this._time = time;
+        this.time = time;
     }
 
     public static zero(instant: Instant): Utility {
@@ -48,13 +48,13 @@ export class Utility {
     public getValueByInstant(instant: Instant, discounts?: HashMap<ParcelID, number>): number {
         let valueDiff = 0;
 
-        for (const [id, [value, count]] of this._parcels.entries()) {
+        for (const [id, [value, count]] of this.parcels.entries()) {
             const discount = discounts?.get(id) ?? 1;
-            const diff = value.getValueDiff(this._time, instant) * discount;
+            const diff = value.getValueDiff(this.time, instant) * discount;
             valueDiff += Math.min(diff, value.getMaxValue()) * count;
         }
 
-        const value = this._value - valueDiff;
+        const value = this.value - valueDiff;
         return value < 0 ? 0 : value;
     }
 
@@ -70,12 +70,12 @@ export class Utility {
      * @returns The new utility
      */
     public newWith(reward: number, parcels: [ParcelID, DecayingValue][], time: Instant): Utility {
-        const newValue = this._value + reward;
-        const newParcels = this._parcels.copy();
+        const newValue = this.value + reward;
+        const newParcels = this.parcels.copy();
 
         for (const [id, value] of parcels) {
-            if (this._parcels.has(id)) {
-                const [oldValue, count] = this._parcels.get(id)!;
+            if (this.parcels.has(id)) {
+                const [oldValue, count] = this.parcels.get(id)!;
                 newParcels.set(id, [oldValue, count + 1]);
             } else {
                 newParcels.set(id, [value, 1]);
@@ -93,13 +93,13 @@ export class Utility {
      * @param other The utility to add (this utility is not modified)
      */
     public add(other: Utility) {
-        this._value += other._value;
-        for (const [parcelID, [parcel, count]] of other._parcels.entries()) {
-            if (this._parcels.has(parcelID)) {
-                const [oldParcel, oldCount] = this._parcels.get(parcelID)!;
-                this._parcels.set(parcelID, [oldParcel, oldCount + count]);
+        this.value += other.value;
+        for (const [parcelID, [parcel, count]] of other.parcels.entries()) {
+            if (this.parcels.has(parcelID)) {
+                const [oldParcel, oldCount] = this.parcels.get(parcelID)!;
+                this.parcels.set(parcelID, [oldParcel, oldCount + count]);
             } else {
-                this._parcels.set(parcelID, [parcel, count]);
+                this.parcels.set(parcelID, [parcel, count]);
             }
         }
     }

@@ -11,6 +11,7 @@ import {
     Agent,
     AgentID,
     Config,
+    DecayingValue,
     Direction,
     Intention,
     Parcel,
@@ -114,7 +115,7 @@ export class BeliefSet {
     public updateParcels(visibleParcels: Parcel[], currentPosition: Position) {
         const newFreeParcels: ParcelID[] = [];
         const changedPositionParcels: [ParcelID, Position, Position][] = [];
-        const noLongerFreeParcels: [ParcelID, Position][] = [];
+        const noLongerFreeParcels: [ParcelID, Position, DecayingValue][] = [];
 
         const { parcelRadius } = Config.getEnvironmentConfig();
 
@@ -133,7 +134,7 @@ export class BeliefSet {
                 // If the parcel is not expired and it should be visibile but it is not,
                 // then it means that the parcel was taken by another agent.
                 this._removeParcel(id);
-                noLongerFreeParcels.push([id, parcel.position]);
+                noLongerFreeParcels.push([id, parcel.position, parcel.value]);
             }
         }
 
@@ -163,7 +164,7 @@ export class BeliefSet {
                 // the parcel is no longer free
                 this._removeParcel(parcel.id);
                 if (!parcel.agentID.equals(this.myID)) {
-                    noLongerFreeParcels.push([parcel.id, parcel.position]);
+                    noLongerFreeParcels.push([parcel.id, parcel.position, parcel.value]);
                 }
             }
         }
@@ -504,7 +505,7 @@ export class BeliefSet {
         callback: (
             newFreeParcels: ParcelID[],
             changedPositionParcels: [ParcelID, Position, Position][],
-            noLongerFreeParcels: [ParcelID, Position][],
+            noLongerFreeParcels: [ParcelID, Position, DecayingValue][],
         ) => void,
     ) {
         this._broker.on("parcels-change", callback);

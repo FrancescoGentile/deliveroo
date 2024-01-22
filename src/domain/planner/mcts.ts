@@ -3,7 +3,15 @@
 //
 
 import { BeliefSet } from "src/domain/beliefs";
-import { Config, Intention, ParcelID, Position, Utility } from "src/domain/structs";
+import {
+    Config,
+    DecayingValue,
+    Intention,
+    Parcel,
+    ParcelID,
+    Position,
+    Utility,
+} from "src/domain/structs";
 import { Instant } from "src/utils";
 import { MCTSNotStartedError } from "../errors";
 import { Node, State } from "./node";
@@ -147,30 +155,28 @@ export class MonteCarloTreeSearch {
     private _onParcelsChange(
         newFreeParcels: ParcelID[],
         changedPositionParcels: [ParcelID, Position, Position][],
-        noLongerFreeParcels: [ParcelID, Position][],
+        noLongerFreeParcels: [ParcelID, Position, DecayingValue][],
     ) {
         if (this._root === null) {
             return;
         }
 
-        if (
-            newFreeParcels.length > 0 &&
-            changedPositionParcels.length === 0 &&
-            noLongerFreeParcels.length === 0
-        ) {
-            this._root.addNewFreeParcels(newFreeParcels);
-            return;
+        if (noLongerFreeParcels.length > 0) {
+            for (const [id, pos, value] of noLongerFreeParcels) {
+                this._root.removeParcel(id, pos, value);
+            }
         }
 
-        // For now, if there is a change in the parcels, we restart the search.
-        // TODO: find a way to update the tree without restarting the search.
-        const state: State = {
-            executedIntenion: Intention.pickup(this._root.state.position),
-            position: this._root.state.position,
-            arrivalInstant: Instant.now(),
-            pickedParcels: this._root.state.pickedParcels,
-        };
+        if (changedPositionParcels.length > 0) {
+            for (const [id, oldPos, newPos] of changedPositionParcels) {
+                const value = this._beliefs.getParcelByID(id)!.value;
+                this._root.removeParcel(id, oldPos, value);
+                newFreeParcels.push(id);
+            }
+        }
 
-        this._root = new Node(state, this._beliefs.getParcelPositions(), this._beliefs);
+        if (newFreeParcels.length > 0) {
+            this._root.addNewFreeParcels(newFreeParcels);
+        }
     }
 }
