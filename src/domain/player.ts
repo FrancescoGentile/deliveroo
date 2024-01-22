@@ -300,7 +300,7 @@ export class Player {
             const factor = assignedTo > 0 ? discountFactor : -discountFactor;
             for (const parcel of this._beliefs.getParcelsByPosition(intention.position)) {
                 const oldFactor = this._beliefs.parcelDiscounts.get(parcel.id) ?? 1;
-                newParcelDiscounts.set(parcel.id, oldFactor * factor);
+                newParcelDiscounts.set(parcel.id, oldFactor + oldFactor * factor);
             }
         }
         this._beliefs.parcelDiscounts = newParcelDiscounts;

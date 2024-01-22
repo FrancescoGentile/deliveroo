@@ -33,7 +33,7 @@ function getConfig(): [PlayerConfig, string, string] {
     defaultValues.set("start-iterations", 10);
     defaultValues.set("num-promising-positions", 5);
     defaultValues.set("gaussian-std", 1.0);
-    defaultValues.set("discount-factor", 1.1);
+    defaultValues.set("discount-factor", 0.1);
 
     // first check if the corresponding environment variables are set
     const config = new Map<string, string | number>();
