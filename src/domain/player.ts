@@ -5,7 +5,6 @@
 import { HashMap, HashSet, Instant } from "src/utils";
 import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
-import { NotImplementedError } from "./errors";
 import { GridMap } from "./map";
 import { MonteCarloTreeSearch } from "./planner";
 import { Actuators, Messenger, Sensors } from "./ports";
@@ -139,6 +138,8 @@ export class Player {
         while (this._shouldRun) {
             const intention = await this._getBestIntention();
             console.log(intention);
+
+            this._planner.printTree(Instant.now(), this._position);
 
             let possibleDirections: Direction[];
             if (this._actualPaths.has(intention)) {

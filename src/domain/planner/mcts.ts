@@ -13,6 +13,7 @@ import {
     Utility,
 } from "src/domain/structs";
 import { Instant } from "src/utils";
+import treefy from "treeify";
 import { MCTSNotStartedError } from "../errors";
 import { Node, State } from "./node";
 
@@ -146,6 +147,40 @@ export class MonteCarloTreeSearch {
             child.utility,
             child.visits,
         ]);
+    }
+
+    public printTree(instant: Instant, position: Position) {
+        if (this._root === null) {
+            throw new MCTSNotStartedError();
+        }
+
+        console.log(
+            "Tree",
+            treefy.asTree(this._getTree(this._root.children, instant, position), true, false),
+        );
+    }
+
+    private _getTree(children: Node[], startTime: Instant, position: Position): any {
+        const res: any = {};
+        for (const [idx, node] of children.entries()) {
+            const distance = this._beliefs.map.distance(
+                position,
+                node.state.executedIntenion.position,
+            );
+            const { movementDuration } = Config.getEnvironmentConfig();
+            const arrivalTime = startTime.add(movementDuration.multiply(distance));
+
+            const parcels = Array.from(node.utility.parcels.keys());
+            res[`child_${idx}`] = {
+                intention: node.state.executedIntenion,
+                visits: node.visits,
+                utility_parcels: parcels,
+                score: node.utility.getValueByInstant(arrivalTime) / node.visits,
+                ...this._getTree(node.children, arrivalTime, node.state.executedIntenion.position),
+            };
+        }
+
+        return res;
     }
 
     // ------------------------------------------------------------------------

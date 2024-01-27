@@ -489,11 +489,11 @@ export class Node {
         if (this.children.length > i) {
             const child = this.children[i];
             for (const grandChild of child.children) {
-                const childEqualtoGradChild = this.children.some((c) =>
+                const childEqualtoGrandChild = this.children.some((c) =>
                     c.state.executedIntenion.equals(grandChild.state.executedIntenion),
                 );
 
-                if (!childEqualtoGradChild) {
+                if (!childEqualtoGrandChild) {
                     const distance = this.beliefs.map.distance(
                         this.state.position,
                         grandChild.state.position,
@@ -505,8 +505,12 @@ export class Node {
                     totalUtilityDiff += grandChild._updateArrivalInstant(newArrivalInstant);
                 } else {
                     for (const [gcParcel, [v, gcCount]] of grandChild.utility.parcels.entries()) {
-                        const [_, oldCount] = this.utility.parcels.get(gcParcel)!;
-                        this.utility.parcels.set(gcParcel, [v, oldCount - gcCount]);
+                        if (this.utility.parcels.has(gcParcel)) {
+                            const [_, oldCount] = this.utility.parcels.get(gcParcel)!;
+                            this.utility.parcels.set(gcParcel, [v, oldCount - gcCount]);
+                        } else {
+                            console.log("Parcel", gcParcel);
+                        }
                     }
 
                     totalVisitDiff -= grandChild.visits;
