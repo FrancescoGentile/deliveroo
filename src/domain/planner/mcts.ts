@@ -154,8 +154,8 @@ export class MonteCarloTreeSearch {
             throw new MCTSNotStartedError();
         }
 
+        console.log("Tree:");
         console.log(
-            "Tree",
             treefy.asTree(this._getTree(this._root.children, instant, position), true, false),
         );
     }

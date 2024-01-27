@@ -207,7 +207,6 @@ export class Node {
         oldPosition: Position,
         value: DecayingValue,
     ): [number, number] {
-        this.utility.parcels.delete(parcelID);
         let totalUtilityDiff = 0;
         let totalVisitDiff = 0;
 
@@ -240,6 +239,7 @@ export class Node {
             }
         }
 
+        this.utility.parcels.delete(parcelID);
         this.utility.value += totalUtilityDiff;
         this._visits += totalVisitDiff;
 
@@ -505,12 +505,8 @@ export class Node {
                     totalUtilityDiff += grandChild._updateArrivalInstant(newArrivalInstant);
                 } else {
                     for (const [gcParcel, [v, gcCount]] of grandChild.utility.parcels.entries()) {
-                        if (this.utility.parcels.has(gcParcel)) {
-                            const [_, oldCount] = this.utility.parcels.get(gcParcel)!;
-                            this.utility.parcels.set(gcParcel, [v, oldCount - gcCount]);
-                        } else {
-                            console.log("Parcel", gcParcel);
-                        }
+                        const [_, oldCount] = this.utility.parcels.get(gcParcel)!;
+                        this.utility.parcels.set(gcParcel, [v, oldCount - gcCount]);
                     }
 
                     totalVisitDiff -= grandChild.visits;

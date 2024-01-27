@@ -520,10 +520,16 @@ export class BeliefSet {
     // ------------------------------------------------------------------------
 
     private _removeDeadParcels() {
+        const noLongerFreeParcels: [ParcelID, Position, DecayingValue][] = [];
         for (const [id, parcel] of this._freeParcels.entries()) {
             if (parcel.isExpired()) {
+                noLongerFreeParcels.push([id, parcel.position, parcel.value]);
                 this._removeParcel(id);
             }
+        }
+
+        if (noLongerFreeParcels.length > 0) {
+            this._broker.emit("parcels-change", [], [], noLongerFreeParcels);
         }
     }
 
