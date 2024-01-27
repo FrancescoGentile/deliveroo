@@ -87,6 +87,7 @@ export class Player {
 
         this._messenger.onHelloMessage(this._onHello.bind(this));
         this._messenger.onParcelSensingMessage(this._onRemoteParcelSensing.bind(this));
+        this._messenger.onAgentSensingMessage(this._onRemoteAgentSensing.bind(this));
         this._messenger.onIntentionUpdateMessage(this._onRemoteIntentionUpdate.bind(this));
 
         this._beliefs.onOccupiedPositionsChange(() => this._onOccupiedPositionsChange());
@@ -524,7 +525,7 @@ export class Player {
      * @param agents The agents that were sensed.
      */
     private async _onLocalAgentSensing(agents: Agent[]) {
-        this._beliefs.updateAgents(agents, this._position, this._beliefs.myID);
+        this._beliefs.updateAgents(agents, this._position);
 
         const message: AgentSensingMessage = {
             type: MessageType.AGENT_SENSING,
@@ -541,7 +542,7 @@ export class Player {
             return;
         }
 
-        this._beliefs.updateAgents(message.agents, message.position, sender);
+        this._beliefs.updateAgents(message.agents, message.position);
         this._beliefs.updateTeamMatePosition(sender, message.position);
     }
 

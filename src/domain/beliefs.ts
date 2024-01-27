@@ -4,7 +4,7 @@
 
 import { MinPriorityQueue } from "@datastructures-js/priority-queue";
 import EventEmitter from "eventemitter3";
-import { HashMap, HashSet, Instant, kmax } from "src/utils";
+import { Duration, HashMap, HashSet, Instant, kmax } from "src/utils";
 import { TeamMateNotFoundError } from "./errors";
 import { GridMap } from "./map";
 import {
@@ -44,12 +44,9 @@ export class BeliefSet {
     private readonly _teamMates: HashMap<AgentID, TeamMate> = new HashMap();
 
     // map each agent to the instant when it was first seen
-    private readonly _agents: HashMap<AgentID, Instant> = new HashMap();
+    private readonly _agents: HashMap<AgentID, [Agent, Instant]> = new HashMap();
 
-    // map each agent to the agent that last saw it
-    private readonly _visibleAgents: HashMap<AgentID, [Agent, AgentID]> = new HashMap();
-
-    private _occupiedPositions: HashSet<Position> = new HashSet();
+    private readonly _occupiedPositions: HashMap<Position, [AgentID, Instant]> = new HashMap();
 
     private readonly _broker: EventEmitter = new EventEmitter();
 
@@ -187,86 +184,109 @@ export class BeliefSet {
     // Agent management
     // ------------------------------------------------------------------------
 
-    public getVisibleAgents(): Agent[] {
-        return Array.from(this._visibleAgents.values()).map(([agent, id]) => agent);
+    public getOccupiedPositions(): Position[] {
+        return Array.from(this._occupiedPositions.keys());
     }
 
-    public updateAgents(visibleAgents: Agent[], currentPosition: Position, teammate: AgentID) {
-        const now = Instant.now();
-        const numTiles = this.map.tiles.length;
-        const avgParcelsDistance = numTiles / Config.getEnvironmentConfig().maxParcels;
+    public getVisibleAgents(): Agent[] {
+        return Array.from(this._occupiedPositions.values()).map(([agentID]) => {
+            const [agent] = this._agents.get(agentID)!;
+            return agent;
+        });
+    }
 
-        const oldOccupiedPositions = this._occupiedPositions;
-        const newOccupiedPositions = new HashSet<Position>();
+    public updateAgents(visibleAgents: Agent[], currentPosition: Position) {
+        const now = Instant.now();
+        const {
+            maxParcels,
+            movementDuration,
+            randomAgentMovementDuration,
+            numRandomAgents,
+            parcelRewardMean,
+            agentRadius,
+        } = Config.getEnvironmentConfig();
+
+        const avgParcelsDistance = this.map.tiles.length / maxParcels;
+
         let changed = false;
 
-        // the agents that the teammate updating the belief has seen before
-        const seenByTeammate = new HashSet<AgentID>();
-        for (const [agent, seenBy] of this._visibleAgents.values()) {
-            if (teammate.equals(seenBy)) {
-                seenByTeammate.add(agent.id);
-            }
+        const visibleOccupiedPositions = new HashMap<Position, AgentID>();
+        for (const agent of visibleAgents) {
+            visibleOccupiedPositions.set(agent.position, agent.id);
+        }
 
-            if (!seenBy.equals(this.myID)) {
-                // if the teammate that last saw an agent isn't me and they've not been
-                //  heard for too long, then we remove the agents they sensed from the belief
-                const mate = this._teamMates.get(agent.id)!;
-                if (
-                    now.subtract(mate.lastHeard).milliseconds >
-                    Config.getPlayerConfig().maxLastHeard.milliseconds
-                ) {
-                    this._visibleAgents.delete(agent.id);
+        for (const [position, [agentID, instant]] of this._occupiedPositions.entries()) {
+            if (visibleOccupiedPositions.has(position)) {
+                const [oldAgent] = this._agents.get(agentID)!;
+                // the position is still occupied
+                if (oldAgent.id.equals(visibleOccupiedPositions.get(position)!)) {
+                    // the same agent is occupying the position
+                    this._occupiedPositions.set(position, [agentID, now]);
+                } else {
+                    // a different agent is occupying the position
+                    this._occupiedPositions.set(position, [
+                        visibleOccupiedPositions.get(position)!,
+                        now,
+                    ]);
+                }
+            } else {
+                // the position may be free depending on whether I can see it or not
+                const distance = currentPosition.manhattanDistance(position);
+                if (distance <= agentRadius) {
+                    // I can see the position and it is free
+                    this._occupiedPositions.delete(position);
+                    changed = true;
+                } else {
+                    // I cannot see the position, so I check whether it has passed enough time
+                    // since an agent was last seen in that position
+                    const [agent] = this._agents.get(agentID)!;
+                    const timePassed = now.subtract(instant);
+                    let maxTimeToPass: Duration;
+                    if (agent.random) {
+                        maxTimeToPass = randomAgentMovementDuration;
+                    } else {
+                        maxTimeToPass = movementDuration;
+                    }
+
+                    if (timePassed.milliseconds > maxTimeToPass.milliseconds) {
+                        this._occupiedPositions.delete(position);
+                        changed = true;
+                    }
                 }
             }
         }
 
         for (const agent of visibleAgents) {
             if (this.myID.equals(agent.id)) {
-                // the agent is the main player
                 continue;
             }
 
-            // agent seen before
+            if (!this._occupiedPositions.has(agent.position)) {
+                this._occupiedPositions.set(agent.position, [agent.id, now]);
+                changed = true;
+            }
+
             if (this._agents.has(agent.id)) {
-                const firstSeenAgent = this._agents.get(agent.id)!;
+                const [, firstSeenAgent] = this._agents.get(agent.id)!;
                 const visitedTiles =
-                    now.subtract(firstSeenAgent).milliseconds /
-                    Config.getEnvironmentConfig().movementDuration.milliseconds;
+                    now.subtract(firstSeenAgent).milliseconds / movementDuration.milliseconds;
                 const numSmartAgents = this._teamMates.size + 1;
 
                 const avgScore =
-                    ((visitedTiles / avgParcelsDistance) *
-                        Config.getEnvironmentConfig().parcelRewardMean) /
-                    numSmartAgents;
+                    ((visitedTiles / avgParcelsDistance) * parcelRewardMean) / numSmartAgents;
 
                 let random = false;
-                if (Config.getEnvironmentConfig().numRandomAgents > 0) {
+                if (numRandomAgents > 0) {
                     random = avgScore > agent.score;
                 }
 
                 const updatedAgent = new Agent(agent.id, agent.position, agent.score, random);
-                this._visibleAgents.set(agent.id, [updatedAgent, teammate]);
-                this._agents.set(agent.id, firstSeenAgent);
+                this._agents.set(agent.id, [updatedAgent, firstSeenAgent]);
             } else {
-                this._agents.set(agent.id, now);
                 const newAgent = new Agent(agent.id, agent.position, agent.score, false);
-                this._visibleAgents.set(agent.id, [newAgent, teammate]);
-            }
-
-            seenByTeammate.delete(agent.id);
-
-            newOccupiedPositions.add(agent.position);
-            if (!oldOccupiedPositions.has(agent.position)) {
-                changed = true;
+                this._agents.set(agent.id, [newAgent, now]);
             }
         }
-
-        // the previous agents the teammate updating the belief saw that they no longer see are removed
-        for (const agent of seenByTeammate.values()) {
-            this._visibleAgents.delete(agent);
-        }
-
-        this._occupiedPositions = newOccupiedPositions;
 
         if (changed) {
             this._broker.emit("occupied-positions-change");
@@ -359,10 +379,7 @@ export class BeliefSet {
      */
     public getPromisingPositions(currentPosition: Position, k: number): [Position, number][] {
         const weights = [...this._positionWeights];
-        const agentsPositions = [
-            ...Array.from(this._visibleAgents.values()).map(([agent, id]) => agent.position),
-            currentPosition,
-        ];
+        const agentsPositions = [...this._occupiedPositions.keys(), currentPosition];
 
         const { agentRadius, parcelRewardMean } = Config.getEnvironmentConfig();
         const { gaussianStd } = Config.getPlayerConfig();
@@ -448,8 +465,8 @@ export class BeliefSet {
     public recomputePath(start: Position, end: Position): Direction[] | null {
         const positions = new HashSet<Position>(this.map.tiles.map((t) => t.position));
 
-        for (const [agent, lastSeen] of this._visibleAgents.values()) {
-            positions.delete(agent.position);
+        for (const position of this.getOccupiedPositions()) {
+            positions.delete(position);
         }
 
         const frontier = new MinPriorityQueue<[Position, number]>((v) => v[1]);
