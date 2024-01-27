@@ -6,6 +6,7 @@ import {
     AgentID,
     AgentSensingMessage,
     HelloMessage,
+    IgnoreMeMessage,
     IntentionUpdateMessage,
     ParcelSensingMessage,
 } from "src/domain/structs";
@@ -43,6 +44,14 @@ export interface Messenger {
     sendIntentionUpdateMessage(id: AgentID, message: IntentionUpdateMessage): Promise<void>;
 
     /**
+     * Sends an ignore me message to the agent with the given ID.
+     *
+     * @param id The ID of the agent to send the message to.
+     * @param message The message to send.
+     */
+    sendIgnoreMeMessage(id: AgentID, message: IgnoreMeMessage): Promise<void>;
+
+    /**
      * Registers a callback to be called when a hello message is received.
      *
      * @param callback The callback to register.
@@ -73,4 +82,11 @@ export interface Messenger {
     onIntentionUpdateMessage(
         callback: (sender: AgentID, message: IntentionUpdateMessage) => void,
     ): void;
+
+    /**
+     * Registers a callback to be called when an ignore message is received.
+     *
+     * @param callback The callback to register.
+     */
+    onIgnoreMeMessage(callback: (sender: AgentID, message: IgnoreMeMessage) => void): void;
 }

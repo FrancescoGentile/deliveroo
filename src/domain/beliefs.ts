@@ -24,6 +24,7 @@ export interface TeamMate {
     position: Position;
     lastHeard: Instant;
     intentions: [Intention, number][];
+    ignore: boolean;
 }
 
 export class BeliefSet {
@@ -49,6 +50,8 @@ export class BeliefSet {
     private readonly _occupiedPositions: HashMap<Position, [AgentID, Instant]> = new HashMap();
 
     private readonly _broker: EventEmitter = new EventEmitter();
+
+    private readonly _ignoredParcels: HashSet<ParcelID> = new HashSet();
 
     public parcelDiscounts: HashMap<ParcelID, number> = new HashMap();
 
@@ -113,6 +116,7 @@ export class BeliefSet {
         const newFreeParcels: ParcelID[] = [];
         const changedPositionParcels: [ParcelID, Position, Position][] = [];
         const noLongerFreeParcels: [ParcelID, Position, DecayingValue][] = [];
+        const expiredParcels: [ParcelID, Position, DecayingValue][] = [];
 
         const { parcelRadius } = Config.getEnvironmentConfig();
 
@@ -120,6 +124,7 @@ export class BeliefSet {
         for (const [id, parcel] of this._freeParcels.entries()) {
             if (parcel.isExpired()) {
                 this._removeParcel(id);
+                expiredParcels.push([id, parcel.position, parcel.value]);
                 continue;
             }
 
@@ -136,6 +141,10 @@ export class BeliefSet {
         }
 
         for (const parcel of visibleParcels) {
+            if (this._ignoredParcels.has(parcel.id)) {
+                continue;
+            }
+
             if (parcel.agentID === null) {
                 // the parcel is free
                 if (this._freeParcels.has(parcel.id)) {
@@ -177,6 +186,17 @@ export class BeliefSet {
                 changedPositionParcels,
                 noLongerFreeParcels,
             );
+        }
+
+        if (expiredParcels.length > 0) {
+            this._broker.emit("expired-parcels", expiredParcels);
+        }
+    }
+
+    public addIgnoredParcels(parcels: ParcelID[]) {
+        for (const parcelId of parcels) {
+            this._ignoredParcels.add(parcelId);
+            this._removeParcel(parcelId);
         }
     }
 
@@ -323,6 +343,7 @@ export class BeliefSet {
             position: new Position(0, 0), // Here we can use any position since it will be updated later.
             lastHeard: Instant.now(),
             intentions: [],
+            ignore: false,
         });
     }
 
@@ -360,6 +381,16 @@ export class BeliefSet {
         }
 
         teamMate.intentions = intentions;
+        teamMate.lastHeard = Instant.now();
+    }
+
+    public updateTeamMateIgnore(agentID: AgentID, ignore: boolean) {
+        const teamMate = this._teamMates.get(agentID);
+        if (teamMate === undefined) {
+            throw new TeamMateNotFoundError();
+        }
+
+        teamMate.ignore = ignore;
         teamMate.lastHeard = Instant.now();
     }
 
@@ -408,10 +439,13 @@ export class BeliefSet {
     }
 
     /**
-     * Computes the bottleneck between start and end. The bottleneck is the
-     * set of positions that must necessarily be crossed to go from start to end.
+     * Computes the bottleneck between start and end.
+     * The bottleneck is the set of positions that must necessarily be crossed
+     * to go from start to end.
+     *
      * @param start The starting position.
      * @param end The ending position.
+     *
      * @returns The bottleneck between start and end.
      */
     public computeBottleneck(start: Position, end: Position): HashSet<Position> {
@@ -458,8 +492,10 @@ export class BeliefSet {
     /**
      * Computes the shortest path from start to end taking into account the
      * current state of the environment.
+     *
      * @param start The starting position.
      * @param end The ending position.
+     *
      * @returns The shortest path from start to end or null if no path exists.
      */
     public recomputePath(start: Position, end: Position): Direction[] | null {
@@ -518,6 +554,11 @@ export class BeliefSet {
     // Event listeners
     // ------------------------------------------------------------------------
 
+    /**
+     * Registers a callback that is called when the set of free parcels changes.
+     *
+     * @param callback The callback to register.
+     */
     public onParcelsChange(
         callback: (
             newFreeParcels: ParcelID[],
@@ -526,6 +567,10 @@ export class BeliefSet {
         ) => void,
     ) {
         this._broker.on("parcels-change", callback);
+    }
+
+    public onExpiredParcels(callback: (parcels: [ParcelID, Position, DecayingValue][]) => void) {
+        this._broker.on("expired-parcels", callback);
     }
 
     public onOccupiedPositionsChange(callback: () => void) {
@@ -537,16 +582,20 @@ export class BeliefSet {
     // ------------------------------------------------------------------------
 
     private _removeDeadParcels() {
-        const noLongerFreeParcels: [ParcelID, Position, DecayingValue][] = [];
+        for (const id of this._ignoredParcels.values()) {
+            this._ignoredParcels.delete(id);
+        }
+
+        const expiredParcels: [ParcelID, Position, DecayingValue][] = [];
         for (const [id, parcel] of this._freeParcels.entries()) {
             if (parcel.isExpired()) {
-                noLongerFreeParcels.push([id, parcel.position, parcel.value]);
+                expiredParcels.push([id, parcel.position, parcel.value]);
                 this._removeParcel(id);
             }
         }
 
-        if (noLongerFreeParcels.length > 0) {
-            this._broker.emit("parcels-change", [], [], noLongerFreeParcels);
+        if (expiredParcels.length > 0) {
+            this._broker.emit("expired-parcels", expiredParcels);
         }
     }
 

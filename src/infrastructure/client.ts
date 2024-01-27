@@ -14,6 +14,7 @@ import {
     Direction,
     EnvironmentConfig,
     HelloMessage,
+    IgnoreMeMessage,
     IntentionUpdateMessage,
     MessageType,
     Parcel,
@@ -227,6 +228,14 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         });
     }
 
+    public async sendIgnoreMeMessage(id: AgentID, message: IgnoreMeMessage): Promise<void> {
+        return new Promise((resolve, _reject) => {
+            this._socket.emit("say", id.serialize(), serializeMessage(message), () => {
+                resolve();
+            });
+        });
+    }
+
     public onHelloMessage(callback: (sender: AgentID, message: HelloMessage) => void): void {
         this._socket.on("msg", (id, _name, msg, reply) => {
             try {
@@ -297,6 +306,24 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
             try {
                 const message = deserializeMessage(msg);
                 if (message.type === MessageType.INTENTION_UPDATE) {
+                    callback(new AgentID(id), message);
+                    if (reply) {
+                        reply();
+                    }
+                }
+            } catch (error) {
+                if (!(error instanceof UnknownMessageError)) {
+                    throw error;
+                }
+            }
+        });
+    }
+
+    public onIgnoreMeMessage(callback: (sender: AgentID, message: IgnoreMeMessage) => void): void {
+        this._socket.on("msg", (id, _name, msg, reply) => {
+            try {
+                const message = deserializeMessage(msg);
+                if (message.type === MessageType.IGNORE) {
                     callback(new AgentID(id), message);
                     if (reply) {
                         reply();

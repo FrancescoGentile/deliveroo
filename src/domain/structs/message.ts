@@ -14,13 +14,15 @@ export enum MessageType {
     PARCEL_SENSING = "parcel_sensing",
     AGENT_SENSING = "agent_sensing",
     INTENTION_UPDATE = "intention_update",
+    IGNORE = "ignore",
 }
 
 export type Message =
     | HelloMessage
     | ParcelSensingMessage
     | AgentSensingMessage
-    | IntentionUpdateMessage;
+    | IntentionUpdateMessage
+    | IgnoreMeMessage;
 
 /**
  * Message periodically sent by an agent to all other agents to announce its
@@ -59,6 +61,15 @@ export interface IntentionUpdateMessage {
     intentions: [Intention, number][];
 }
 
+/**
+ * Message sent by an agent to all agents in its team whether it should be ignored
+ * when planning.
+ */
+export interface IgnoreMeMessage {
+    type: MessageType.IGNORE;
+    ignore: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Serialization and deserialization
 // ---------------------------------------------------------------------------
@@ -92,6 +103,12 @@ export function serializeMessage(message: Message): string {
                     intention.serialize(),
                     weight,
                 ]),
+            });
+        }
+        case MessageType.IGNORE: {
+            return JSON.stringify({
+                type: message.type,
+                ignore: message.ignore,
             });
         }
         default: {
@@ -135,6 +152,12 @@ export function deserializeMessage(message: string): Message {
                     Intention.deserialize(intention),
                     weight,
                 ]),
+            };
+        }
+        case MessageType.IGNORE: {
+            return {
+                type: MessageType.IGNORE,
+                ignore: parsedMessage.ignore,
             };
         }
         default: {

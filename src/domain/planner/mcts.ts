@@ -7,6 +7,7 @@ import {
     Config,
     DecayingValue,
     Intention,
+    IntentionType,
     Parcel,
     ParcelID,
     Position,
@@ -33,6 +34,7 @@ export class MonteCarloTreeSearch {
         this._beliefs = enviroment;
 
         this._beliefs.onParcelsChange(this._onParcelsChange.bind(this));
+        this._beliefs.onExpiredParcels(this._onExpiredParcels.bind(this));
     }
 
     // ------------------------------------------------------------------------
@@ -149,6 +151,42 @@ export class MonteCarloTreeSearch {
         ]);
     }
 
+    public addAllPutdownIntentions() {
+        if (this._root === null) {
+            throw new MCTSNotStartedError();
+        }
+
+        const alreadyAdded = new Set<Intention>();
+        for (const intention of this._root.nextIntentions) {
+            if (intention.type === IntentionType.PUTDOWN) {
+                alreadyAdded.add(intention);
+            }
+        }
+
+        const newIntentions: Intention[] = [];
+        for (const delivery of this._beliefs.map.deliveryTiles) {
+            const intention = Intention.putdown(delivery.position);
+            if (!alreadyAdded.has(intention)) {
+                newIntentions.push(intention);
+            }
+        }
+
+        this._root.addIntentions(newIntentions);
+    }
+
+    public removeCarryingParcels(): ParcelID[] {
+        if (this._root === null) {
+            throw new MCTSNotStartedError();
+        }
+
+        const parcels = this._root.state.pickedParcels;
+        for (const [id, parcel] of parcels) {
+            this._root.partialRemoveParcel(id, parcel);
+        }
+
+        return parcels.map(([id]) => id);
+    }
+
     public printTree(instant: Instant, position: Position) {
         if (this._root === null) {
             throw new MCTSNotStartedError();
@@ -158,6 +196,48 @@ export class MonteCarloTreeSearch {
         console.log(
             treefy.asTree(this._getTree(this._root.children, instant, position), true, false),
         );
+    }
+
+    // ------------------------------------------------------------------------
+    // Private methods
+    // ------------------------------------------------------------------------
+
+    private _onParcelsChange(
+        newFreeParcels: ParcelID[],
+        changedPositionParcels: [ParcelID, Position, Position][],
+        noLongerFreeParcels: [ParcelID, Position, DecayingValue][],
+    ) {
+        if (this._root === null) {
+            return;
+        }
+
+        if (noLongerFreeParcels.length > 0) {
+            for (const [id, pos, value] of noLongerFreeParcels) {
+                this._root.removeNoLongerFreeParcel(id, pos, value);
+            }
+        }
+
+        if (changedPositionParcels.length > 0) {
+            for (const [id, oldPos, newPos] of changedPositionParcels) {
+                const value = this._beliefs.getParcelByID(id)!.value;
+                this._root.removeNoLongerFreeParcel(id, oldPos, value);
+                newFreeParcels.push(id);
+            }
+        }
+
+        if (newFreeParcels.length > 0) {
+            this._root.addNewFreeParcels(newFreeParcels);
+        }
+    }
+
+    private _onExpiredParcels(parcels: [ParcelID, Position, DecayingValue][]) {
+        if (this._root === null) {
+            return;
+        }
+
+        for (const [id, pos, value] of parcels) {
+            this._root.removeExpiredParcel(id, pos, value);
+        }
     }
 
     private _getTree(children: Node[], startTime: Instant, position: Position): any {
@@ -181,37 +261,5 @@ export class MonteCarloTreeSearch {
         }
 
         return res;
-    }
-
-    // ------------------------------------------------------------------------
-    // Private methods
-    // ------------------------------------------------------------------------
-
-    private _onParcelsChange(
-        newFreeParcels: ParcelID[],
-        changedPositionParcels: [ParcelID, Position, Position][],
-        noLongerFreeParcels: [ParcelID, Position, DecayingValue][],
-    ) {
-        if (this._root === null) {
-            return;
-        }
-
-        if (noLongerFreeParcels.length > 0) {
-            for (const [id, pos, value] of noLongerFreeParcels) {
-                this._root.removeParcel(id, pos, value);
-            }
-        }
-
-        if (changedPositionParcels.length > 0) {
-            for (const [id, oldPos, newPos] of changedPositionParcels) {
-                const value = this._beliefs.getParcelByID(id)!.value;
-                this._root.removeParcel(id, oldPos, value);
-                newFreeParcels.push(id);
-            }
-        }
-
-        if (newFreeParcels.length > 0) {
-            this._root.addNewFreeParcels(newFreeParcels);
-        }
     }
 }

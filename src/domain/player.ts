@@ -50,6 +50,8 @@ export class Player {
 
     private _shouldRun = false;
 
+    private _followedAgent: AgentID | null = null;
+
     // -----------------------------------------------------------------------
     // Constructor
     // -----------------------------------------------------------------------
@@ -89,8 +91,11 @@ export class Player {
         this._messenger.onParcelSensingMessage(this._onRemoteParcelSensing.bind(this));
         this._messenger.onAgentSensingMessage(this._onRemoteAgentSensing.bind(this));
         this._messenger.onIntentionUpdateMessage(this._onRemoteIntentionUpdate.bind(this));
+        this._messenger.onIgnoreMeMessage((sender, message) =>
+            this._beliefs.updateTeamMateIgnore(sender, message.ignore),
+        );
 
-        this._beliefs.onOccupiedPositionsChange(() => this._onOccupiedPositionsChange());
+        this._beliefs.onOccupiedPositionsChange(this._onOccupiedPositionsChange.bind(this));
     }
 
     // -----------------------------------------------------------------------
@@ -137,11 +142,69 @@ export class Player {
      */
     private async _run() {
         while (this._shouldRun) {
-            const intention = await this._getBestIntention();
-            console.log(intention);
+            if (this._followedAgent !== null) {
+                await this._followAgent();
+            } else {
+                await this._performIntention();
+            }
 
-            this._planner.printTree(Instant.now(), this._position);
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+    }
 
+    private async _followAgent() {
+        while (true) {
+            const mate = this._beliefs.getTeamMate(this._followedAgent!);
+            const distance = this._beliefs.map.distance(this._position, mate.position);
+            if (distance <= 2) {
+                break;
+            }
+
+            const possibleDirections = this._beliefs.map.getNextDirection(
+                this._position,
+                mate.position,
+            )!;
+            for (const direction of possibleDirections) {
+                if (await this._actuators.move(direction)) {
+                    this._position = this._position.moveTo(direction);
+                    this._planner.updatePosition(this._position);
+                    break;
+                }
+            }
+        }
+
+        await this._actuators.putdown(null);
+        this._followedAgent = null;
+        this._sendMessage({ type: MessageType.IGNORE, ignore: false });
+        const [intentionScores] = this._computeIntentionsScores(Instant.now());
+        const message: IntentionUpdateMessage = {
+            type: MessageType.INTENTION_UPDATE,
+            intentions: intentionScores,
+        };
+        await this._sendMessage(message);
+    }
+
+    private async _performIntention() {
+        const intention = await this._getBestIntention();
+        console.log(intention);
+
+        this._planner.printTree(Instant.now(), this._position);
+
+        if (this._position.equals(intention.position)) {
+            this._actualPaths.delete(intention);
+            switch (intention.type) {
+                case IntentionType.PICKUP: {
+                    await this._actuators.pickup();
+                    this._planner.executeIntention(intention);
+                    break;
+                }
+                case IntentionType.PUTDOWN: {
+                    await this._actuators.putdown(null);
+                    this._planner.executeIntention(intention);
+                    break;
+                }
+            }
+        } else {
             let possibleDirections: Direction[];
             if (this._actualPaths.has(intention)) {
                 const [position, path] = this._actualPaths.get(intention)!;
@@ -163,10 +226,11 @@ export class Player {
                     )!;
                 }
             } else {
-                possibleDirections = this._beliefs.map.getNextDirection(
-                    this._position,
-                    intention.position,
-                )!;
+                throw new Error("When do we get here?");
+                // possibleDirections = this._beliefs.map.getNextDirection(
+                //     this._position,
+                //     intention.position,
+                // )!;
             }
 
             let hasMoved = false;
@@ -190,24 +254,6 @@ export class Player {
 
                 this._blockedBottlenecks.push([bottleneck, intention]);
             }
-
-            if (this._position.equals(intention.position)) {
-                this._actualPaths.delete(intention);
-                switch (intention.type) {
-                    case IntentionType.PICKUP: {
-                        await this._actuators.pickup();
-                        this._planner.executeIntention(intention);
-                        break;
-                    }
-                    case IntentionType.PUTDOWN: {
-                        await this._actuators.putdown(null);
-                        this._planner.executeIntention(intention);
-                        break;
-                    }
-                }
-            }
-
-            await new Promise((resolve) => setImmediate(resolve));
         }
     }
 
@@ -222,67 +268,44 @@ export class Player {
      */
     private async _getBestIntention(): Promise<Intention> {
         const now = Instant.now();
-        const { maxLastHeard } = Config.getPlayerConfig();
 
-        const mateToIdx = new HashMap<AgentID, number>();
-        const intentionToIdx = new HashMap<Intention, number>();
-        const idxToIntention = new Map<number, Intention>();
+        const [intentionUtilities, allScoresZero, numPutdowns, numUnreachablePutdowns] =
+            this._computeIntentionsScores(now);
 
-        let mateIdx = 1; // 0 is reserved for the player
-        let intentionIdx = 0;
-
-        const intentionUtilities = this._computeIntentionsScores(now);
         const message: IntentionUpdateMessage = {
             type: MessageType.INTENTION_UPDATE,
             intentions: intentionUtilities,
         };
         await this._sendMessage(message);
 
-        for (const [intention] of intentionUtilities) {
-            if (!intentionToIdx.has(intention)) {
-                intentionToIdx.set(intention, intentionIdx);
-                idxToIntention.set(intentionIdx, intention);
-                intentionIdx += 1;
-            } else {
-                // This should never happen. If it does, it means that there is a bug in the planner.
-                throw new Error("Intention already exists.");
-            }
-        }
-
-        mateIdx += 1;
-        for (const [agentID, mate] of this._beliefs.getTeamMates()) {
-            if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
-                continue;
+        if (allScoresZero) {
+            if (numUnreachablePutdowns < numPutdowns) {
+                return this._getBestMoveIntention();
             }
 
-            mateToIdx.set(agentID, mateIdx);
-            mateIdx += 1;
-
-            for (const [intention] of mate.intentions) {
-                if (!intentionToIdx.has(intention)) {
-                    intentionToIdx.set(intention, intentionIdx);
-                    idxToIntention.set(intentionIdx, intention);
-                    intentionIdx += 1;
-                }
+            if (numPutdowns < this._beliefs.map.deliveryTiles.length) {
+                this._planner.addAllPutdownIntentions();
+                return this._getBestMoveIntention();
             }
-        }
 
-        const matrix: number[][] = [];
-        for (let i = 0; i < mateIdx; i++) {
-            matrix.push(new Array(intentionIdx).fill(0));
-        }
-
-        for (const [intention, utility] of intentionUtilities) {
-            matrix[0][intentionToIdx.get(intention)!] = utility;
-        }
-
-        for (const [agentID, idx] of mateToIdx.entries()) {
-            const mate = this._beliefs.getTeamMate(agentID);
-            for (const [intention, utility] of mate.intentions) {
-                matrix[idx][intentionToIdx.get(intention)!] = utility;
+            // all possible putdown intentions are blocked
+            // so we follow the closest team mate and we give them the parcels
+            const closestTeamMate = this._findClosestTeamMate();
+            if (closestTeamMate === null) {
+                return this._getBestMoveIntention();
             }
+
+            this._followedAgent = closestTeamMate;
+            this._sendMessage({ type: MessageType.IGNORE, ignore: true });
+            this._beliefs.addIgnoredParcels(this._planner.removeCarryingParcels());
         }
 
+        const [mateToIdx, intentionToIdx, idxToIntention] = this._computeIntentionMateMaps(
+            intentionUtilities,
+            now,
+        );
+
+        const matrix = this._computeCostMatrix(mateToIdx, intentionToIdx, intentionUtilities);
         const result = linearSumAssignment(matrix, { maximaze: true });
 
         const newParcelDiscounts = new HashMap<ParcelID, number>();
@@ -326,12 +349,39 @@ export class Player {
      *
      * @returns
      */
-    private _computeIntentionsScores(instant: Instant): [Intention, number][] {
+    private _computeIntentionsScores(
+        instant: Instant,
+    ): [[Intention, number][], boolean, number, number] {
         const intentionUtilityPairs = this._planner.getIntentionUtilities();
         const { movementDuration } = Config.getEnvironmentConfig();
 
-        return intentionUtilityPairs.map(([intention, utility, visits]) => {
-            const distance = this._beliefs.map.distance(this._position, intention.position);
+        const intentionScores: [Intention, number][] = [];
+        let allScoresZero = true;
+        let numPutdowns = 0;
+        let numUnreachablePutdowns = 0;
+
+        for (const [intention, utility, visits] of intentionUtilityPairs) {
+            if (intention.type === IntentionType.PUTDOWN) {
+                numPutdowns += 1;
+            }
+
+            let distance: number;
+            if (this._actualPaths.has(intention)) {
+                const [position, path] = this._actualPaths.get(intention)!;
+                if (path === null) {
+                    intentionScores.push([intention, 0]);
+                    if (intention.type === IntentionType.PUTDOWN) {
+                        numUnreachablePutdowns += 1;
+                    }
+
+                    continue;
+                }
+
+                distance = this._beliefs.map.distance(this._position, position) + path.length;
+            } else {
+                distance = this._beliefs.map.distance(this._position, intention.position);
+            }
+
             const arrivalInstant = instant.add(movementDuration.multiply(distance));
             let score = utility.getValueByInstant(arrivalInstant, this._beliefs.parcelDiscounts);
             score /= visits;
@@ -356,8 +406,82 @@ export class Player {
                 }
             }
 
-            return [intention, score];
-        });
+            intentionScores.push([intention, score]);
+            if (score !== 0) {
+                allScoresZero = false;
+            }
+        }
+
+        return [intentionScores, allScoresZero, numPutdowns, numUnreachablePutdowns];
+    }
+
+    private _computeIntentionMateMaps(
+        intentionUtilities: [Intention, number][],
+        now: Instant,
+    ): [HashMap<AgentID, number>, HashMap<Intention, number>, Map<number, Intention>] {
+        const mateToIdx = new HashMap<AgentID, number>();
+        const intentionToIdx = new HashMap<Intention, number>();
+        const idxToIntention = new Map<number, Intention>();
+
+        const { maxLastHeard } = Config.getPlayerConfig();
+        let mateIdx = 1; // 0 is reserved for the player
+        let intentionIdx = 0;
+        for (const [intention] of intentionUtilities) {
+            if (!intentionToIdx.has(intention)) {
+                intentionToIdx.set(intention, intentionIdx);
+                idxToIntention.set(intentionIdx, intention);
+                intentionIdx += 1;
+            } else {
+                // This should never happen. If it does, it means that there is a bug in the planner.
+                throw new Error("Intention already exists.");
+            }
+        }
+
+        for (const [agentID, mate] of this._beliefs.getTeamMates()) {
+            if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
+                continue;
+            }
+            if (mate.ignore) {
+                continue;
+            }
+
+            mateToIdx.set(agentID, mateIdx);
+            mateIdx += 1;
+
+            for (const [intention] of mate.intentions) {
+                if (!intentionToIdx.has(intention)) {
+                    intentionToIdx.set(intention, intentionIdx);
+                    idxToIntention.set(intentionIdx, intention);
+                    intentionIdx += 1;
+                }
+            }
+        }
+
+        return [mateToIdx, intentionToIdx, idxToIntention];
+    }
+
+    private _computeCostMatrix(
+        mateToIdx: HashMap<AgentID, number>,
+        intentionToIdx: HashMap<Intention, number>,
+        intentionUtilities: [Intention, number][],
+    ): number[][] {
+        const matrix: number[][] = [];
+        for (let i = 0; i < mateToIdx.size; i++) {
+            matrix.push(new Array(mateToIdx.size).fill(0));
+        }
+
+        for (const [intention, utility] of intentionUtilities) {
+            matrix[0][intentionToIdx.get(intention)!] = utility;
+        }
+
+        for (const [agentID, idx] of mateToIdx.entries()) {
+            const mate = this._beliefs.getTeamMate(agentID);
+            for (const [intention, utility] of mate.intentions) {
+                matrix[idx][intentionToIdx.get(intention)!] = utility;
+            }
+        }
+
+        return matrix;
     }
 
     /**
@@ -406,6 +530,31 @@ export class Player {
         return bestIntention;
     }
 
+    private _findClosestTeamMate(): AgentID | null {
+        const now = Instant.now();
+        const { maxLastHeard } = Config.getPlayerConfig();
+
+        let closestTeamMate: AgentID | null = null;
+        let closestDistance = Number.POSITIVE_INFINITY;
+
+        for (const [agentID, mate] of this._beliefs.getTeamMates()) {
+            if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
+                continue;
+            }
+            if (mate.ignore) {
+                continue;
+            }
+
+            const distance = this._beliefs.map.distance(this._position, mate.position);
+            if (distance < closestDistance) {
+                closestTeamMate = agentID;
+                closestDistance = distance;
+            }
+        }
+
+        return closestTeamMate;
+    }
+
     private async _sendMessage(message: Message) {
         const mates = this._beliefs.getTeamMates().map(([id]) => id);
         switch (message.type) {
@@ -433,35 +582,19 @@ export class Player {
                 );
                 break;
             }
-        }
-    }
-
-    private _onOccupiedPositionsChange() {
-        const oldActualPaths = this._actualPaths;
-        const oldBlockedBottlenecks = this._blockedBottlenecks;
-
-        const newActualPaths: HashMap<Intention, [Position, Direction[] | null]> = new HashMap();
-        const newBlockedBottlenecks: [HashSet<Position>, Intention][] = [];
-
-        const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
-
-        for (const agent of this._beliefs.getVisibleAgents()) {
-            for (const [idx, [bottleneck, intention]] of oldBlockedBottlenecks.entries()) {
-                if (bottleneck.has(agent.position)) {
-                    if (oldActualPaths.has(intention)) {
-                        newActualPaths.set(intention, oldActualPaths.get(intention)!);
-
-                        if (!alreadyAdded[idx]) {
-                            newBlockedBottlenecks.push([bottleneck, intention]);
-                            alreadyAdded[idx] = true;
-                        }
-                    }
-                }
+            case MessageType.IGNORE: {
+                await Promise.all(
+                    mates.map((agentID) => {
+                        return this._messenger.sendIgnoreMeMessage(agentID, message);
+                    }),
+                );
+                break;
+            }
+            default: {
+                // This should never happen
+                throw new Error("Trying to send an unknown message type.");
             }
         }
-
-        this._actualPaths = newActualPaths;
-        this._blockedBottlenecks = newBlockedBottlenecks;
     }
 
     // -----------------------------------------------------------------------
@@ -559,5 +692,33 @@ export class Player {
         }
 
         this._beliefs.updateTeamMateIntentions(sender, message.intentions);
+    }
+
+    private _onOccupiedPositionsChange() {
+        const oldActualPaths = this._actualPaths;
+        const oldBlockedBottlenecks = this._blockedBottlenecks;
+
+        const newActualPaths: HashMap<Intention, [Position, Direction[] | null]> = new HashMap();
+        const newBlockedBottlenecks: [HashSet<Position>, Intention][] = [];
+
+        const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
+
+        for (const agent of this._beliefs.getVisibleAgents()) {
+            for (const [idx, [bottleneck, intention]] of oldBlockedBottlenecks.entries()) {
+                if (bottleneck.has(agent.position)) {
+                    if (oldActualPaths.has(intention)) {
+                        newActualPaths.set(intention, oldActualPaths.get(intention)!);
+
+                        if (!alreadyAdded[idx]) {
+                            newBlockedBottlenecks.push([bottleneck, intention]);
+                            alreadyAdded[idx] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        this._actualPaths = newActualPaths;
+        this._blockedBottlenecks = newBlockedBottlenecks;
     }
 }

@@ -150,6 +150,11 @@ export class Node {
         }
     }
 
+    public addIntentions(intentions: Intention[]) {
+        this.nextIntentions.push(...intentions);
+        this._sortIntentions();
+    }
+
     /**
      * Adds the positions of the given parcels to the set of positions where the agent can go
      * pickup parcels.
@@ -187,10 +192,7 @@ export class Node {
             }
         }
 
-        const idx = this.children.length;
-        this.nextIntentions.push(...newIntentions);
-
-        this._sortIntentions(idx);
+        this.addIntentions(newIntentions);
 
         for (let i = 0; i < this.children.length; i += 1) {
             const child = this.children[i];
@@ -202,7 +204,7 @@ export class Node {
         return totalUtilityDiff;
     }
 
-    public removeParcel(
+    public removeNoLongerFreeParcel(
         parcelID: ParcelID,
         oldPosition: Position,
         value: DecayingValue,
@@ -215,7 +217,7 @@ export class Node {
             if (!intention.position.equals(oldPosition)) {
                 if (this.children.length > i) {
                     const child = this.children[i];
-                    const [utilityDiff, visitDiff] = child.removeParcel(
+                    const [utilityDiff, visitDiff] = child.removeNoLongerFreeParcel(
                         parcelID,
                         oldPosition,
                         value,
@@ -224,15 +226,15 @@ export class Node {
                     totalVisitDiff += visitDiff;
                 }
             } else if (intention.type === IntentionType.PICKUP) {
+                const utilitDiff = this.partialRemoveParcel(parcelID, value);
+                totalUtilityDiff += utilitDiff;
+
                 const parcels = this.beliefs.getParcelsByPosition(intention.position);
                 if (parcels.length === 0) {
                     const [utilityDiff, visitDiff] = this._removeNextIntention(i);
                     totalUtilityDiff += utilityDiff;
                     totalVisitDiff += visitDiff;
                     i -= 1;
-                } else {
-                    const utilitDiff = this._partialRemoveParcel(parcelID, value);
-                    totalUtilityDiff += utilitDiff;
                 }
             } else {
                 throw new UnsupportedIntentionTypeError(intention);
@@ -244,6 +246,38 @@ export class Node {
         this._visits += totalVisitDiff;
 
         return [totalUtilityDiff, totalVisitDiff];
+    }
+
+    public partialRemoveParcel(parcelID: ParcelID, value: DecayingValue): number {
+        this.utility.parcels.delete(parcelID);
+        const idx = this.state.pickedParcels.findIndex(([id]) => id.equals(parcelID));
+        if (idx === -1) {
+            throw new Error("This should never happen.");
+        }
+        this.state.pickedParcels.splice(idx, 1);
+
+        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+            const utilitDiff = -value.getValueByInstant(this.state.arrivalInstant) * this._visits;
+            this.utility.value += utilitDiff;
+            return utilitDiff;
+        }
+
+        let totalUtilityDiff = 0;
+        for (const child of this.children) {
+            totalUtilityDiff += child.partialRemoveParcel(parcelID, value);
+        }
+
+        this.utility.value += totalUtilityDiff;
+        return totalUtilityDiff;
+    }
+
+    public removeExpiredParcel(parcelID: ParcelID, oldPosition: Position, value: DecayingValue) {
+        const isCarried = this.state.pickedParcels.some(([id]) => id.equals(parcelID));
+        if (!isCarried) {
+            this.removeNoLongerFreeParcel(parcelID, oldPosition, value);
+        } else {
+            this.partialRemoveParcel(parcelID, value);
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -375,15 +409,9 @@ export class Node {
 
     /**
      * Sorts the next intentions according to their greedy value.
-     *
-     * @param start The index of the first intention to start sorting from.
-     *
-     * @throws {Error} If the intentions to sort have already been expanded.
      */
-    private _sortIntentions(start = 0) {
-        if (this.children.length > start) {
-            throw new Error("Cannot sort intentions that have already been expanded.");
-        }
+    private _sortIntentions() {
+        const start = this.children.length;
 
         const intentionsWithValues: [Intention, number][] = this.nextIntentions
             .slice(start)
@@ -519,28 +547,6 @@ export class Node {
         }
 
         return [totalUtilityDiff, totalVisitDiff];
-    }
-
-    private _partialRemoveParcel(parcelID: ParcelID, value: DecayingValue): number {
-        this.utility.parcels.delete(parcelID);
-
-        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            if (!this.state.pickedParcels.some(([id]) => id.equals(parcelID))) {
-                throw new Error("This should never happen.");
-            }
-
-            const utilitDiff = -value.getValueByInstant(this.state.arrivalInstant) * this._visits;
-            this.utility.value += utilitDiff;
-            return utilitDiff;
-        }
-
-        let totalUtilityDiff = 0;
-        for (const child of this.children) {
-            totalUtilityDiff += child._partialRemoveParcel(parcelID, value);
-        }
-
-        this.utility.value += totalUtilityDiff;
-        return totalUtilityDiff;
     }
 
     private _updateArrivalInstant(newInstant: Instant): number {

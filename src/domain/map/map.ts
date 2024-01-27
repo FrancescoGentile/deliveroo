@@ -53,6 +53,14 @@ export class GridMap {
         return this._distance(from, to);
     }
 
+    public distanceIfPossible(from: Position, to: Position): number | null {
+        if (!this._graph.hasUndirectedEdge(from.hash(), to.hash())) {
+            return null;
+        }
+
+        return this._distance(from, to);
+    }
+
     /**
      * Returns the length of the shortest path between the given position and the closest delivery position.
      *
