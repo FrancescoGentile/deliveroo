@@ -226,8 +226,11 @@ export class Node {
                     totalVisitDiff += visitDiff;
                 }
             } else if (intention.type === IntentionType.PICKUP) {
-                const utilitDiff = this.partialRemoveParcel(parcelID, value);
-                totalUtilityDiff += utilitDiff;
+                if (this.children.length > i) {
+                    const child = this.children[i];
+                    const utilitDiff = child.partialRemoveParcel(parcelID, value);
+                    totalUtilityDiff += utilitDiff;
+                }
 
                 const parcels = this.beliefs.getParcelsByPosition(intention.position);
                 if (parcels.length === 0) {
@@ -301,7 +304,7 @@ export class Node {
 
         switch (nextIntention.type) {
             case IntentionType.PUTDOWN: {
-                pickedParcels = this.state.pickedParcels;
+                pickedParcels = [...this.state.pickedParcels];
                 break;
             }
             case IntentionType.PICKUP: {

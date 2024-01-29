@@ -71,9 +71,7 @@ export class Parcel {
     }
 
     public static deserialize(serialized: string): Parcel {
-        // console.log(serialized);
         const obj = JSON.parse(serialized);
-        // console.log('obj', obj)
         return new Parcel(
             ParcelID.deserialize(obj.id),
             DecayingValue.deserialize(obj.value),

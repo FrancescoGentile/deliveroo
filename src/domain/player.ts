@@ -226,11 +226,10 @@ export class Player {
                     )!;
                 }
             } else {
-                throw new Error("When do we get here?");
-                // possibleDirections = this._beliefs.map.getNextDirection(
-                //     this._position,
-                //     intention.position,
-                // )!;
+                possibleDirections = this._beliefs.map.getNextDirection(
+                    this._position,
+                    intention.position,
+                )!;
             }
 
             let hasMoved = false;
@@ -278,7 +277,7 @@ export class Player {
         };
         await this._sendMessage(message);
 
-        if (allScoresZero) {
+        if (allScoresZero && numPutdowns > 0) {
             if (numUnreachablePutdowns < numPutdowns) {
                 return this._getBestMoveIntention();
             }
@@ -466,7 +465,8 @@ export class Player {
         intentionUtilities: [Intention, number][],
     ): number[][] {
         const matrix: number[][] = [];
-        for (let i = 0; i < mateToIdx.size; i++) {
+        // mateToIdx + 1 because the first row is for the player
+        for (let i = 0; i < mateToIdx.size + 1; i++) {
             matrix.push(new Array(mateToIdx.size).fill(0));
         }
 
