@@ -459,7 +459,7 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         let parcelRadius: number;
         switch (typeof config.PARCELS_OBSERVATION_DISTANCE) {
             case "number": {
-                parcelRadius = config.PARCEL_RADIUS - 1;
+                parcelRadius = config.PARCELS_OBSERVATION_DISTANCE - 1;
                 break;
             }
             default: {
@@ -470,7 +470,7 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         let agentRadius: number;
         switch (typeof config.AGENTS_OBSERVATION_DISTANCE) {
             case "number": {
-                agentRadius = config.AGENT_RADIUS - 1;
+                agentRadius = config.AGENTS_OBSERVATION_DISTANCE - 1;
                 break;
             }
             default: {

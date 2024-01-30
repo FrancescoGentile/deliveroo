@@ -37,7 +37,7 @@ export class Node {
 
     public readonly beliefs: BeliefSet;
 
-    public readonly utility: Utility;
+    public utility: Utility;
 
     private _reward = 0;
 
@@ -130,23 +130,13 @@ export class Node {
     public backtrack(utility: Utility) {
         this._visits += 1;
 
-        let toBePassed: Utility;
-        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            const tmp = utility.newWith(
-                this._reward,
-                this.state.pickedParcels,
-                this.state.arrivalInstant,
-            );
-
-            this.utility.add(tmp);
-            toBePassed = tmp;
-        } else {
-            this.utility.add(utility);
-            toBePassed = utility;
+        const newUtility = this._computeNewUtility(utility);
+        if (newUtility.value > this.utility.value) {
+            this.utility = newUtility;
         }
 
         if (this.parent !== null) {
-            this.parent.backtrack(toBePassed);
+            this.parent.backtrack(this.utility);
         }
     }
 
@@ -163,15 +153,13 @@ export class Node {
      *
      * @throws {Error} If the new positions are already in the next intentions.
      */
-    public addNewFreeParcels(parcels: ParcelID[]): number {
+    public addNewFreeParcels(parcels: ParcelID[]) {
         const positionToIdx = new Map<Position, number>();
         for (const [i, intention] of this.nextIntentions.entries()) {
             if (intention.type === IntentionType.PICKUP) {
                 positionToIdx.set(intention.position, i);
             }
         }
-
-        let totalUtilityDiff = 0;
 
         const newIntentions: Intention[] = [];
         const freeParcelsForChild: ParcelID[][] = Array(this.children.length).fill(parcels);
@@ -181,8 +169,7 @@ export class Node {
             if (intentionIdx !== undefined) {
                 if (this.children.length > intentionIdx) {
                     const child = this.children[intentionIdx];
-                    const utilityDiff = child._addPickupParcel(parcel);
-                    totalUtilityDiff += utilityDiff;
+                    child._addPickupParcel(parcel);
                     freeParcelsForChild[intentionIdx] = freeParcelsForChild[intentionIdx].filter(
                         (id) => !id.equals(parcelID),
                     );
@@ -196,20 +183,19 @@ export class Node {
 
         for (let i = 0; i < this.children.length; i += 1) {
             const child = this.children[i];
-            const utilityDiff = child.addNewFreeParcels(freeParcelsForChild[i]);
-            totalUtilityDiff += utilityDiff;
+            child.addNewFreeParcels(freeParcelsForChild[i]);
+            const newUtility = this._computeNewUtility(child.utility);
+            if (newUtility.value > this.utility.value) {
+                this.utility = newUtility;
+            }
         }
-
-        this.utility.value += totalUtilityDiff;
-        return totalUtilityDiff;
     }
 
     public removeNoLongerFreeParcel(
         parcelID: ParcelID,
         oldPosition: Position,
         value: DecayingValue,
-    ): [number, number] {
-        let totalUtilityDiff = 0;
+    ): number {
         let totalVisitDiff = 0;
 
         for (let i = 0; i < this.nextIntentions.length; i += 1) {
@@ -217,25 +203,18 @@ export class Node {
             if (!intention.position.equals(oldPosition)) {
                 if (this.children.length > i) {
                     const child = this.children[i];
-                    const [utilityDiff, visitDiff] = child.removeNoLongerFreeParcel(
-                        parcelID,
-                        oldPosition,
-                        value,
-                    );
-                    totalUtilityDiff += utilityDiff;
+                    const visitDiff = child.removeNoLongerFreeParcel(parcelID, oldPosition, value);
                     totalVisitDiff += visitDiff;
                 }
             } else if (intention.type === IntentionType.PICKUP) {
                 if (this.children.length > i) {
                     const child = this.children[i];
-                    const utilitDiff = child.partialRemoveParcel(parcelID, value);
-                    totalUtilityDiff += utilitDiff;
+                    child.partialRemoveParcel(parcelID, value);
                 }
 
                 const parcels = this.beliefs.getParcelsByPosition(intention.position);
                 if (parcels.length === 0) {
-                    const [utilityDiff, visitDiff] = this._removeNextIntention(i);
-                    totalUtilityDiff += utilityDiff;
+                    const visitDiff = this._removeNextIntention(i);
                     totalVisitDiff += visitDiff;
                     i -= 1;
                 }
@@ -244,14 +223,17 @@ export class Node {
             }
         }
 
-        this.utility.parcels.delete(parcelID);
-        this.utility.value += totalUtilityDiff;
-        this._visits += totalVisitDiff;
+        for (const child of this.children) {
+            const newUtility = this._computeNewUtility(child.utility);
+            if (newUtility.value > this.utility.value) {
+                this.utility = newUtility;
+            }
+        }
 
-        return [totalUtilityDiff, totalVisitDiff];
+        return totalVisitDiff;
     }
 
-    public partialRemoveParcel(parcelID: ParcelID, value: DecayingValue): number {
+    public partialRemoveParcel(parcelID: ParcelID, value: DecayingValue) {
         this.utility.parcels.delete(parcelID);
         const idx = this.state.pickedParcels.findIndex(([id]) => id.equals(parcelID));
         if (idx === -1) {
@@ -262,16 +244,14 @@ export class Node {
         if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
             const utilitDiff = -value.getValueByInstant(this.state.arrivalInstant) * this._visits;
             this.utility.value += utilitDiff;
-            return utilitDiff;
+        } else {
+            for (const child of this.children) {
+                child.partialRemoveParcel(parcelID, value);
+                if (child.utility.value > this.utility.value) {
+                    this.utility = child.utility;
+                }
+            }
         }
-
-        let totalUtilityDiff = 0;
-        for (const child of this.children) {
-            totalUtilityDiff += child.partialRemoveParcel(parcelID, value);
-        }
-
-        this.utility.value += totalUtilityDiff;
-        return totalUtilityDiff;
     }
 
     public removeExpiredParcel(parcelID: ParcelID, oldPosition: Position, value: DecayingValue) {
@@ -286,6 +266,21 @@ export class Node {
     // ------------------------------------------------------------------------
     // Private methods
     // ------------------------------------------------------------------------
+
+    private _computeNewUtility(childUtility: Utility): Utility {
+        let newUtility: Utility;
+        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+            newUtility = childUtility.newWith(
+                this._reward,
+                this.state.pickedParcels,
+                this.state.arrivalInstant,
+            );
+        } else {
+            newUtility = childUtility;
+        }
+
+        return newUtility;
+    }
 
     /**
      * Expands the node by adding a new child.
@@ -357,14 +352,50 @@ export class Node {
         }
 
         const upperBound = this._computeUpperBound();
-
         let bestChild = null;
         let bestScore = Number.NEGATIVE_INFINITY;
+
+        // if (this.parent === null) {
+        //     console.log("--------------------------------------------------");
+        // }
+
+        const allParcels = new Set<ParcelID>();
+        for (const child of this.children) {
+            for (const parcel of child.utility.parcels.keys()) {
+                allParcels.add(parcel);
+            }
+        }
+
         for (const child of this.children) {
             const utility = child.utility.getValueByInstant(child.state.arrivalInstant);
-            const exploitation = utility / child.visits / upperBound;
+            const exploitation = utility / upperBound;
 
-            const exploration = Math.sqrt(Math.log(this.visits) / child.visits);
+            let exploration = Math.sqrt(Math.log(this.visits) / child.visits);
+            for (const parcel of allParcels) {
+                if (!child.utility.parcels.has(parcel)) {
+                    exploration = Number.POSITIVE_INFINITY;
+                    break;
+                }
+            }
+
+            // const visitExploration = Math.sqrt(Math.log(this.visits) / child.visits);
+
+            // const counts = Array.from(allParcels).map((parcel) => {
+            //     const count = child.utility.parcels.get(parcel)?.[1] ?? 0;
+            //     return count + 1;
+            // });
+            // const entropyExploration = 1 - normalized_entropy(counts);
+
+            // if (this.parent === null) {
+            //     console.log("Child: ", child.state.executedIntenion);
+            //     console.log("Parcels:", this.utility.parcels);
+            //     console.log("Utility value: ", child.utility.value);
+            //     console.log("Upper bound: ", upperBound);
+            //     console.log("Exploitation: ", exploitation);
+            //     console.log("Visits: ", child.visits);
+            //     console.log("Exploration: ", explorationParameter * exploration);
+            //     console.log("---------");
+            // }
 
             const score = exploitation + explorationParameter * exploration;
             if (score > bestScore) {
@@ -384,25 +415,27 @@ export class Node {
     /**
      * Computes the upper bound of the value of the node.
      * The upper bound corresponds to the reward obtained if the agent could instantly pick up
-     * all the parcels that are currently free and deliver them to the closest delivery point.
+     * all the parcels that are currently free and deliver them.
      *
      * @returns the upper bound of the value of the node.
      */
     private _computeUpperBound(): number {
-        const closestDelivery = this.beliefs.map.getClosestDeliveryPosition(this.state.position);
-        const { movementDuration } = Config.getEnvironmentConfig();
-        const distance = this.beliefs.map.distance(this.state.position, closestDelivery);
-        const arrivalTime = this.state.arrivalInstant.add(movementDuration.multiply(distance));
+        // const closestDelivery = this.beliefs.map.getClosestDeliveryPosition(this.state.position);
+        // const { movementDuration } = Config.getEnvironmentConfig();
+        // const distance = this.beliefs.map.distance(this.state.position, closestDelivery);
+        // const arrivalTime = this.state.arrivalInstant.add(movementDuration.multiply(distance));
 
         let upperBound = Number.EPSILON;
-        for (const [, value] of this.state.pickedParcels) {
-            upperBound += value.getValueByInstant(arrivalTime);
+        if (this.state.executedIntenion.type !== IntentionType.PUTDOWN) {
+            for (const [, value] of this.state.pickedParcels) {
+                upperBound += value.getValueByInstant(this.state.arrivalInstant);
+            }
         }
 
         for (const intention of this.nextIntentions) {
             if (intention.type === IntentionType.PICKUP) {
                 for (const parcel of this.beliefs.getParcelsByPosition(intention.position)) {
-                    upperBound += parcel.value.getValueByInstant(arrivalTime);
+                    upperBound += parcel.value.getValueByInstant(this.state.arrivalInstant);
                 }
             }
         }
@@ -488,7 +521,7 @@ export class Node {
         }
     }
 
-    private _addPickupParcel(parcel: Parcel): number {
+    private _addPickupParcel(parcel: Parcel) {
         this.state.pickedParcels.push([parcel.id, parcel.value]);
         if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
             let newReward = 0;
@@ -498,33 +531,42 @@ export class Node {
 
             const diffInReward = newReward - this._reward;
             this._reward = newReward;
-            return diffInReward * this._visits;
+            this.utility.value += diffInReward;
+        } else {
+            for (const child of this.children) {
+                child._addPickupParcel(parcel);
+                if (child.utility.value > this.utility.value) {
+                    this.utility = child.utility;
+                }
+            }
         }
-
-        let totalUtilityDiff = 0;
-        for (const child of this.children) {
-            totalUtilityDiff += child._addPickupParcel(parcel);
-        }
-
-        this.utility.value += totalUtilityDiff;
-        return totalUtilityDiff;
     }
 
-    private _removeNextIntention(i: number): [number, number] {
+    private _removeNextIntention(i: number): number {
         this.nextIntentions.splice(i, 1);
 
-        let totalUtilityDiff = 0;
         let totalVisitDiff = 0;
 
-        const { movementDuration } = Config.getEnvironmentConfig();
         if (this.children.length > i) {
-            const child = this.children[i];
+            const child = this.children.splice(i, 1)[0];
             for (const grandChild of child.children) {
-                const childEqualtoGrandChild = this.children.some((c) =>
-                    c.state.executedIntenion.equals(grandChild.state.executedIntenion),
-                );
+                const gcIntentionIdx = this.nextIntentions.findIndex((intention) => {
+                    return intention.equals(grandChild.state.executedIntenion);
+                });
+                if (gcIntentionIdx === -1) {
+                    if (grandChild.state.executedIntenion.type === IntentionType.PICKUP) {
+                        throw new Error("This should never happen.");
+                    }
 
-                if (!childEqualtoGrandChild) {
+                    continue;
+                }
+
+                if (this.children.length > gcIntentionIdx) {
+                    // we have already expanded this intention
+                    totalVisitDiff += grandChild.visits;
+                } else {
+                    // we can insert the grandchild as a child of this node
+                    const { movementDuration } = Config.getEnvironmentConfig();
                     const distance = this.beliefs.map.distance(
                         this.state.position,
                         grandChild.state.position,
@@ -533,29 +575,34 @@ export class Node {
                         movementDuration.multiply(distance),
                     );
 
-                    totalUtilityDiff += grandChild._updateArrivalInstant(newArrivalInstant);
-                } else {
-                    for (const [gcParcel, [v, gcCount]] of grandChild.utility.parcels.entries()) {
-                        const [_, oldCount] = this.utility.parcels.get(gcParcel)!;
-                        this.utility.parcels.set(gcParcel, [v, oldCount - gcCount]);
-                    }
+                    grandChild._updateArrivalInstant(newArrivalInstant);
 
-                    totalVisitDiff -= grandChild.visits;
-                    const utilityDiff = -grandChild.utility.value;
-                    totalUtilityDiff += utilityDiff;
+                    // swap the next intention with the grandchild's intention
+                    this.nextIntentions[gcIntentionIdx] = this.nextIntentions[i];
+                    this.nextIntentions[i] = grandChild.state.executedIntenion;
+                    this.children[i] = grandChild;
+                    grandChild.parent = this;
                 }
             }
 
-            this.children.splice(i, 1);
+            for (const child of this.children) {
+                const newUtility = this._computeNewUtility(child.utility);
+                if (newUtility.value > this.utility.value) {
+                    this.utility = newUtility;
+                }
+            }
         }
 
-        return [totalUtilityDiff, totalVisitDiff];
+        return totalVisitDiff;
     }
 
-    private _updateArrivalInstant(newInstant: Instant): number {
-        let totalUtilityDiff = 0;
+    private _updateArrivalInstant(newInstant: Instant) {
+        let bestChildUtility = Utility.zero(newInstant);
         for (const child of this.children) {
-            totalUtilityDiff += child._updateArrivalInstant(newInstant);
+            child._updateArrivalInstant(newInstant);
+            if (child.utility.value > bestChildUtility.value) {
+                bestChildUtility = child.utility;
+            }
         }
 
         if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
@@ -564,15 +611,12 @@ export class Node {
                 newReward += value.getValueByInstant(newInstant);
             }
 
-            const diffInReward = newReward - this._reward;
             this._reward = newReward;
-            totalUtilityDiff += diffInReward * this._visits;
+            this.utility = bestChildUtility.newWith(
+                newReward,
+                this.state.pickedParcels,
+                newInstant,
+            );
         }
-
-        this.utility.value += totalUtilityDiff;
-        this.utility.time = newInstant;
-        this.state.arrivalInstant = newInstant;
-
-        return totalUtilityDiff;
     }
 }

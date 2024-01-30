@@ -2,7 +2,7 @@
 //
 //
 
-import { HashMap, HashSet, Instant } from "src/utils";
+import { HashMap, HashSet, Instant, getRandomInt } from "src/utils";
 import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
 import { GridMap } from "./map";
@@ -51,6 +51,8 @@ export class Player {
     private _shouldRun = false;
 
     private _followedAgent: AgentID | null = null;
+
+    private _moveIntention: Intention | null = null;
 
     // -----------------------------------------------------------------------
     // Constructor
@@ -186,9 +188,9 @@ export class Player {
 
     private async _performIntention() {
         const intention = await this._getBestIntention();
-        console.log(intention);
 
-        this._planner.printTree(Instant.now(), this._position);
+        // console.log(intention);
+        // this._planner.printTree(Instant.now(), this._position);
 
         if (this._position.equals(intention.position)) {
             this._actualPaths.delete(intention);
@@ -203,6 +205,10 @@ export class Player {
                     this._planner.executeIntention(intention);
                     break;
                 }
+                case IntentionType.MOVE: {
+                    this._moveIntention = null;
+                    break;
+                }
             }
         } else {
             let possibleDirections: Direction[];
@@ -210,7 +216,7 @@ export class Player {
                 const [position, path] = this._actualPaths.get(intention)!;
 
                 if (path === null) {
-                    throw new Error("Path is null");
+                    return;
                 }
 
                 if (this._position.equals(position)) {
@@ -331,6 +337,7 @@ export class Player {
 
         const assignment = result.rowAssignments[0];
         if (assignment >= 0 && matrix[0][assignment] > 0) {
+            this._moveIntention = null;
             return idxToIntention.get(assignment)!;
         }
 
@@ -344,12 +351,12 @@ export class Player {
     /**
      * Computes the utilities of the intentions that the player can execute.
      *
-     * @param instant The instant at which the utilities should be computed.
+     * @param now The instant at which the utilities should be computed.
      *
      * @returns
      */
     private _computeIntentionsScores(
-        instant: Instant,
+        now: Instant,
     ): [[Intention, number][], boolean, number, number] {
         const intentionUtilityPairs = this._planner.getIntentionUtilities();
         const { movementDuration } = Config.getEnvironmentConfig();
@@ -359,7 +366,7 @@ export class Player {
         let numPutdowns = 0;
         let numUnreachablePutdowns = 0;
 
-        for (const [intention, utility, visits] of intentionUtilityPairs) {
+        for (const [intention, utility] of intentionUtilityPairs) {
             if (intention.type === IntentionType.PUTDOWN) {
                 numPutdowns += 1;
             }
@@ -381,9 +388,8 @@ export class Player {
                 distance = this._beliefs.map.distance(this._position, intention.position);
             }
 
-            const arrivalInstant = instant.add(movementDuration.multiply(distance));
+            const arrivalInstant = now.add(movementDuration.multiply(distance));
             let score = utility.getValueByInstant(arrivalInstant, this._beliefs.parcelDiscounts);
-            score /= visits;
 
             if (intention.type === IntentionType.PICKUP) {
                 let minEnemyDistance = Number.POSITIVE_INFINITY;
@@ -497,6 +503,17 @@ export class Player {
      * @returns The best move intention.
      */
     private _getBestMoveIntention(): Intention {
+        if (this._moveIntention !== null) {
+            if (this._actualPaths.has(this._moveIntention)) {
+                const [, path] = this._actualPaths.get(this._moveIntention)!;
+                if (path !== null) {
+                    return this._moveIntention;
+                }
+            } else {
+                return this._moveIntention;
+            }
+        }
+
         const promisingPositions = this._beliefs.getPromisingPositions(
             this._position,
             Config.getPlayerConfig().numPromisingPositions,
@@ -508,7 +525,21 @@ export class Player {
         const now = Instant.now();
         const { movementDuration } = Config.getEnvironmentConfig();
         for (const [position, value] of promisingPositions) {
-            const distanceToIntention = this._beliefs.map.distance(this._position, position);
+            const intention = Intention.move(position);
+
+            let distanceToIntention: number;
+            if (this._actualPaths.has(intention)) {
+                const [position, path] = this._actualPaths.get(intention)!;
+                if (path === null) {
+                    continue;
+                }
+
+                distanceToIntention =
+                    this._beliefs.map.distance(this._position, position) + path.length;
+            } else {
+                distanceToIntention = this._beliefs.map.distance(this._position, position);
+            }
+
             const distanceToDelivery = this._beliefs.map.distanceToDelivery(position);
             const totalDistance = distanceToIntention + distanceToDelivery;
 
@@ -517,16 +548,18 @@ export class Player {
             const reward = new DecayingValue(value, now).getValueByInstant(arrivalInstant);
 
             if (reward > bestReward) {
-                bestIntention = Intention.move(position);
+                bestIntention = intention;
                 bestReward = reward;
             }
         }
 
         if (bestIntention === null) {
-            // This should never happen.
-            throw new Error("No best movement intention found.");
+            const idx = getRandomInt(this._beliefs.map.tiles.length);
+            const position = this._beliefs.map.tiles[idx].position;
+            bestIntention = Intention.move(position);
         }
 
+        this._moveIntention = bestIntention;
         return bestIntention;
     }
 

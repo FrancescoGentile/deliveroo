@@ -226,8 +226,6 @@ export class BeliefSet {
             agentRadius,
         } = Config.getEnvironmentConfig();
 
-        const avgParcelsDistance = this.map.tiles.length / maxParcels;
-
         let changed = false;
 
         const visibleOccupiedPositions = new HashMap<Position, AgentID>();
@@ -276,6 +274,7 @@ export class BeliefSet {
             }
         }
 
+        const avgParcelsDistance = this.map.tiles.length / maxParcels;
         for (const agent of visibleAgents) {
             if (this.myID.equals(agent.id)) {
                 continue;
@@ -429,7 +428,8 @@ export class BeliefSet {
                         continue;
                     }
 
-                    weights[idx] -= Math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
+                    const factor = Math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
+                    weights[idx] *= 1 - factor;
                 }
             }
         }

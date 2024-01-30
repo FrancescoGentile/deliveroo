@@ -94,3 +94,26 @@ export function categoricalSample<T>(weights: number[], values: T[]): [number, T
 
     return [i, values[i]];
 }
+
+/**
+ * Returns the normalized entropy of the given counts.
+ *
+ * @param counts The counts.
+ *
+ * @returns The normalized entropy.
+ *
+ * @throws {Error} If the counts are empty.
+ */
+export function normalized_entropy(counts: number[]): number {
+    if (counts.length === 0) {
+        throw new Error("Counts cannot be empty.");
+    }
+
+    if (counts.length === 1) {
+        return 1;
+    }
+
+    const total = counts.reduce((a, b) => a + b, 0);
+    const entropy = counts.reduce((a, b) => a + (b / total) * Math.log2(b / total), 0);
+    return -entropy / Math.log2(counts.length);
+}

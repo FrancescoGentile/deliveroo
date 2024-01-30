@@ -4,11 +4,9 @@
 
 import { BeliefSet } from "src/domain/beliefs";
 import {
-    Config,
     DecayingValue,
     Intention,
     IntentionType,
-    Parcel,
     ParcelID,
     Position,
     Utility,
@@ -193,9 +191,7 @@ export class MonteCarloTreeSearch {
         }
 
         console.log("Tree:");
-        console.log(
-            treefy.asTree(this._getTree(this._root.children, instant, position), true, false),
-        );
+        console.log(treefy.asTree(this._getTree(this._root.children), true, false));
     }
 
     // ------------------------------------------------------------------------
@@ -240,23 +236,15 @@ export class MonteCarloTreeSearch {
         }
     }
 
-    private _getTree(children: Node[], startTime: Instant, position: Position): any {
+    private _getTree(children: Node[]): any {
         const res: any = {};
         for (const [idx, node] of children.entries()) {
-            const distance = this._beliefs.map.distance(
-                position,
-                node.state.executedIntenion.position,
-            );
-            const { movementDuration } = Config.getEnvironmentConfig();
-            const arrivalTime = startTime.add(movementDuration.multiply(distance));
-
-            const parcels = Array.from(node.utility.parcels.keys());
             res[`child_${idx}`] = {
                 intention: node.state.executedIntenion,
+                utility: node.utility.value,
                 visits: node.visits,
-                utility_parcels: parcels,
-                score: node.utility.getValueByInstant(arrivalTime) / node.visits,
-                ...this._getTree(node.children, arrivalTime, node.state.executedIntenion.position),
+                utility_parcels: Array.from(node.utility.parcels.keys()),
+                ...this._getTree(node.children),
             };
         }
 

@@ -3,7 +3,7 @@
 //
 
 import { HashMap, Instant } from "src/utils";
-import { Parcel, ParcelID } from "./parcel";
+import { ParcelID } from "./parcel";
 import { DecayingValue } from "./value";
 
 /**
@@ -14,13 +14,13 @@ import { DecayingValue } from "./value";
 export class Utility {
     public value: number;
 
-    public parcels: HashMap<ParcelID, [DecayingValue, number]>;
+    public parcels: HashMap<ParcelID, DecayingValue>;
 
     public time: Instant;
 
     public constructor(
         value: number,
-        parcels: [ParcelID, DecayingValue][] | HashMap<ParcelID, [DecayingValue, number]>,
+        parcels: [ParcelID, DecayingValue][] | HashMap<ParcelID, DecayingValue>,
         time: Instant,
     ) {
         this.value = value;
@@ -29,7 +29,7 @@ export class Utility {
         } else {
             this.parcels = new HashMap();
             for (const [id, value] of parcels) {
-                this.parcels.set(id, [value, 1]);
+                this.parcels.set(id, value);
             }
         }
         this.time = time;
@@ -48,10 +48,9 @@ export class Utility {
     public getValueByInstant(instant: Instant, discounts?: HashMap<ParcelID, number>): number {
         let valueDiff = 0;
 
-        for (const [id, [value, count]] of this.parcels.entries()) {
+        for (const [id, value] of this.parcels.entries()) {
             const discount = discounts?.get(id) ?? 1;
-            const diff = value.getValueDiff(this.time, instant) * discount;
-            valueDiff += Math.min(diff, value.getMaxValue()) * count;
+            valueDiff += value.getValueDiff(this.time, instant) * discount;
         }
 
         const value = this.value - valueDiff;
@@ -67,6 +66,7 @@ export class Utility {
      * @param reward The reward to add to the utility's value
      * @param parcels The parcels to add to the utility's parcels
      * @param time The time to set
+     *
      * @returns The new utility
      */
     public newWith(reward: number, parcels: [ParcelID, DecayingValue][], time: Instant): Utility {
@@ -74,33 +74,9 @@ export class Utility {
         const newParcels = this.parcels.copy();
 
         for (const [id, value] of parcels) {
-            if (this.parcels.has(id)) {
-                const [oldValue, count] = this.parcels.get(id)!;
-                newParcels.set(id, [oldValue, count + 1]);
-            } else {
-                newParcels.set(id, [value, 1]);
-            }
+            newParcels.set(id, value);
         }
 
         return new Utility(newValue, newParcels, time);
-    }
-
-    /**
-     * Adds in place the given utility to this one:
-     * - adds the value
-     * - adds the parcels
-     *
-     * @param other The utility to add (this utility is not modified)
-     */
-    public add(other: Utility) {
-        this.value += other.value;
-        for (const [parcelID, [parcel, count]] of other.parcels.entries()) {
-            if (this.parcels.has(parcelID)) {
-                const [oldParcel, oldCount] = this.parcels.get(parcelID)!;
-                this.parcels.set(parcelID, [oldParcel, oldCount + count]);
-            } else {
-                this.parcels.set(parcelID, [parcel, count]);
-            }
-        }
     }
 }
