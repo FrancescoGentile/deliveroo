@@ -112,7 +112,11 @@ export class BeliefSet {
         return Array.from(this._positionToParcelIDs.keys());
     }
 
-    public updateParcels(visibleParcels: Parcel[], currentPosition: Position) {
+    public updateParcels(parcels: Parcel[], currentPosition: Position) {
+        const visibleParcels = parcels.filter((p) =>
+            this.map.isReachable(currentPosition, p.position),
+        );
+
         const newFreeParcels: ParcelID[] = [];
         const changedPositionParcels: [ParcelID, Position, Position][] = [];
         const noLongerFreeParcels: [ParcelID, Position, DecayingValue][] = [];
@@ -196,8 +200,12 @@ export class BeliefSet {
     public addIgnoredParcels(parcels: ParcelID[]) {
         for (const parcelId of parcels) {
             this._ignoredParcels.add(parcelId);
-            this._removeParcel(parcelId);
+            if (this._freeParcels.has(parcelId)) {
+                throw new Error("I can only ignore parcels that are not free.");
+            }
         }
+
+        console.log("Ignored parcels:", this._ignoredParcels);
     }
 
     // ------------------------------------------------------------------------
@@ -205,17 +213,33 @@ export class BeliefSet {
     // ------------------------------------------------------------------------
 
     public getOccupiedPositions(): Position[] {
-        return Array.from(this._occupiedPositions.keys());
+        return Array.from(this._occupiedPositions.keys()).filter(
+            (p) => !this._occupiedPositions.get(p)![0].equals(this.myID),
+        );
     }
 
     public getVisibleAgents(): Agent[] {
-        return Array.from(this._occupiedPositions.values()).map(([agentID]) => {
-            const [agent] = this._agents.get(agentID)!;
-            return agent;
+        return this.getOccupiedPositions().map((p) => {
+            const [agentID] = this._occupiedPositions.get(p)!;
+            return this._agents.get(agentID)![0];
         });
     }
 
-    public updateAgents(visibleAgents: Agent[], currentPosition: Position) {
+    public isPositionOccupied(position: Position): boolean {
+        if (!this._occupiedPositions.has(position)) {
+            return false;
+        }
+
+        const [agentID] = this._occupiedPositions.get(position)!;
+        return !agentID.equals(this.myID);
+    }
+
+    public updateAgents(
+        agents: Agent[],
+        currentPosition: Position,
+        nextPosition: Position | null,
+        viewer: AgentID,
+    ) {
         const now = Instant.now();
         const {
             maxParcels,
@@ -226,27 +250,48 @@ export class BeliefSet {
             agentRadius,
         } = Config.getEnvironmentConfig();
 
-        let changed = false;
+        const visibleAgents = agents.filter((a) =>
+            this.map.isReachable(currentPosition, a.position),
+        );
 
         const visibleOccupiedPositions = new HashMap<Position, AgentID>();
         for (const agent of visibleAgents) {
             visibleOccupiedPositions.set(agent.position, agent.id);
         }
 
+        // console.log("AAAAAAAAAAAAAAAA");
+        // console.log("Current position:", currentPosition);
+        // console.log("Visible agents:");
+        // for (const agent of visibleAgents) {
+        //     console.log(agent);
+        // }
+
+        // console.log("Previously occupied positions in updateAgents:");
+        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
+        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
+        // }
+
+        let [truePosition, changed] = this._setActualPosition(
+            currentPosition,
+            nextPosition,
+            viewer,
+            now,
+        );
+
+        // console.log("Occupied positions in updateAgents after setUpActions:");
+        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
+        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
+        // }
+
         for (const [position, [agentID, instant]] of this._occupiedPositions.entries()) {
             if (visibleOccupiedPositions.has(position)) {
-                const [oldAgent] = this._agents.get(agentID)!;
-                // the position is still occupied
-                if (oldAgent.id.equals(visibleOccupiedPositions.get(position)!)) {
-                    // the same agent is occupying the position
-                    this._occupiedPositions.set(position, [agentID, now]);
-                } else {
-                    // a different agent is occupying the position
-                    this._occupiedPositions.set(position, [
-                        visibleOccupiedPositions.get(position)!,
-                        now,
-                    ]);
-                }
+                // the position is occupied by an agent
+                this._occupiedPositions.set(position, [
+                    visibleOccupiedPositions.get(position)!,
+                    now,
+                ]);
+            } else if (position.equals(truePosition)) {
+                // do nothing because the position is already updated inside _setActualPosition
             } else {
                 // the position may be free depending on whether I can see it or not
                 const distance = currentPosition.manhattanDistance(position);
@@ -276,27 +321,28 @@ export class BeliefSet {
 
         const avgParcelsDistance = this.map.tiles.length / maxParcels;
         for (const agent of visibleAgents) {
-            if (this.myID.equals(agent.id)) {
-                continue;
-            }
-
             if (!this._occupiedPositions.has(agent.position)) {
                 this._occupiedPositions.set(agent.position, [agent.id, now]);
                 changed = true;
             }
 
             if (this._agents.has(agent.id)) {
-                const [, firstSeenAgent] = this._agents.get(agent.id)!;
-                const visitedTiles =
-                    now.subtract(firstSeenAgent).milliseconds / movementDuration.milliseconds;
-                const numSmartAgents = this._teamMates.size + 1;
-
-                const avgScore =
-                    ((visitedTiles / avgParcelsDistance) * parcelRewardMean) / numSmartAgents;
-
                 let random = false;
-                if (numRandomAgents > 0) {
-                    random = avgScore > agent.score;
+                const [, firstSeenAgent] = this._agents.get(agent.id)!;
+
+                // if the agent is not a team mate, then we check if it is a random agent
+                // if it is a teammate, we know it is not random
+                if (!this._teamMates.has(agent.id)) {
+                    const visitedTiles =
+                        now.subtract(firstSeenAgent).milliseconds / movementDuration.milliseconds;
+                    const numSmartAgents = this._teamMates.size + 1;
+
+                    const avgScore =
+                        ((visitedTiles / avgParcelsDistance) * parcelRewardMean) / numSmartAgents;
+
+                    if (numRandomAgents > 0) {
+                        random = avgScore > agent.score;
+                    }
                 }
 
                 const updatedAgent = new Agent(agent.id, agent.position, agent.score, random);
@@ -306,6 +352,22 @@ export class BeliefSet {
                 this._agents.set(agent.id, [newAgent, now]);
             }
         }
+
+        if (!viewer.equals(this.myID)) {
+            // update the position of the viewer who is a team mate
+            const [oldAgent, firstSeen] = this._agents.get(viewer)!;
+            const newAgent = new Agent(viewer, truePosition, oldAgent.score, false);
+            this._agents.set(viewer, [newAgent, firstSeen]);
+
+            const mate = this._teamMates.get(viewer)!;
+            mate.position = truePosition;
+        }
+
+        // console.log("Occupied positions in updateAgents:");
+        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
+        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
+        // }
+        // console.log("AAAAAAAAAAAAAAAA");
 
         if (changed) {
             this._broker.emit("occupied-positions-change");
@@ -338,9 +400,13 @@ export class BeliefSet {
             throw new Error("Agent already in the team.");
         }
 
+        const position = new Position(0, 0); // Here we can use any position since it will be updated later.
+        const now = Instant.now();
+        this._agents.set(agentID, [new Agent(agentID, position, 0, false), now]);
+
         this._teamMates.set(agentID, {
-            position: new Position(0, 0), // Here we can use any position since it will be updated later.
-            lastHeard: Instant.now(),
+            position: position,
+            lastHeard: now,
             intentions: [],
             ignore: false,
         });
@@ -363,14 +429,49 @@ export class BeliefSet {
         teamMate.lastHeard = Instant.now();
     }
 
-    public updateTeamMatePosition(agentID: AgentID, position: Position) {
+    public updateTeamMatePosition(
+        agentID: AgentID,
+        position: Position,
+        nextPosition: Position | null,
+    ) {
         const teamMate = this._teamMates.get(agentID);
         if (teamMate === undefined) {
             throw new TeamMateNotFoundError();
         }
 
-        teamMate.position = position;
-        teamMate.lastHeard = Instant.now();
+        const now = Instant.now();
+        let [truePosition, changed] = this._setActualPosition(position, nextPosition, agentID, now);
+
+        // search if the agent was occupying another position
+        // if so, remove it
+        for (const [pos, [id]] of this._occupiedPositions.entries()) {
+            if (pos.equals(truePosition)) {
+                continue;
+            }
+
+            if (id.equals(agentID)) {
+                this._occupiedPositions.delete(pos);
+                changed = true;
+            }
+        }
+
+        const [agent, firstSeenAgent] = this._agents.get(agentID)!;
+        const updatedAgent = new Agent(agentID, truePosition, agent.score, agent.random);
+        this._agents.set(agentID, [updatedAgent, firstSeenAgent]);
+
+        teamMate.lastHeard = now;
+        teamMate.position = truePosition;
+
+        // console.log("~~~~~~~~~~~~~~~");
+        // console.log("Occupied positions in updateTeamMatePosition:");
+        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
+        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
+        // }
+        // console.log("~~~~~~~~~~~~~~~");
+
+        if (changed) {
+            this._broker.emit("occupied-positions-change");
+        }
     }
 
     public updateTeamMateIntentions(agentID: AgentID, intentions: [Intention, number][]) {
@@ -428,13 +529,24 @@ export class BeliefSet {
                         continue;
                     }
 
-                    const factor = Math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
-                    weights[idx] *= 1 - factor;
+                    if (level <= 1) {
+                        weights[idx] = 0;
+                    } else {
+                        const factor = Math.exp(-(i * i + j * j) / (2 * gaussianStd * gaussianStd));
+                        weights[idx] *= 1 - factor;
+                    }
                 }
             }
         }
 
-        const [values, indexes] = kmax(weights, k);
+        const reachableWeights = weights.map((w, i) => {
+            const tile = this.map.tiles[i];
+            if (this.map.isReachable(currentPosition, tile.position)) {
+                return w;
+            }
+            return 0;
+        });
+        const [values, indexes] = kmax(reachableWeights, k);
         return values.map((v, i) => [this.map.tiles[indexes[i]].position, v * parcelRewardMean]);
     }
 
@@ -653,6 +765,64 @@ export class BeliefSet {
         } else {
             parcelsInNewPosition.push(id);
         }
+    }
+
+    private _setActualPosition(
+        position: Position,
+        nextPosition: Position | null,
+        agentID: AgentID,
+        now: Instant,
+    ): [Position, boolean] {
+        let changed = false;
+        let truePosition: Position;
+        if (nextPosition !== null) {
+            if (!this._occupiedPositions.has(nextPosition)) {
+                // the agent is moving to the next position which is free, so I assume the agent
+                // will be able to move to the next position
+                truePosition = nextPosition;
+                this._occupiedPositions.set(nextPosition, [agentID, now]);
+
+                if (this._occupiedPositions.has(position)) {
+                    // so the agent will no longer be in the current position
+                    this._occupiedPositions.delete(position);
+                }
+
+                changed = !agentID.equals(this.myID);
+            } else {
+                const [oldAgentID] = this._occupiedPositions.get(nextPosition)!;
+                if (oldAgentID.equals(agentID)) {
+                    // the agent is moving to the next position, but I have already seen it in this position
+                    // so I do not need to update the occupied positions
+                    truePosition = nextPosition;
+                } else {
+                    // the position to which the agent is moving is occupied by another agent
+                    // so I assume the movement will fail and the agent will remain in the current position
+                    this._occupiedPositions.set(position, [agentID, now]);
+                    truePosition = position;
+                }
+            }
+        } else if (this._occupiedPositions.has(position)) {
+            // the agent is not moving and it is occupying a position which was already previously occupied
+            if (agentID.equals(this.myID)) {
+                const [oldAgentID] = this._occupiedPositions.get(position)!;
+                if (!oldAgentID.equals(agentID)) {
+                    // the agent is me and I was not occupying the position before
+                    // so the occupied positions change
+                    changed = true;
+                }
+            }
+
+            this._occupiedPositions.set(position, [agentID, now]);
+            truePosition = position;
+        } else {
+            // the agent is not moving and it is occupying a position which was not previously occupied
+            // so the occupied positions change
+            this._occupiedPositions.set(position, [agentID, now]);
+            truePosition = position;
+            changed = !agentID.equals(this.myID);
+        }
+
+        return [truePosition, changed];
     }
 }
 

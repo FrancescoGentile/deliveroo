@@ -33,7 +33,7 @@ function getConfig(): [PlayerConfig, string, string] {
     defaultValues.set("start-iterations", 10);
     defaultValues.set("num-promising-positions", 5);
     defaultValues.set("gaussian-std", 1.0);
-    defaultValues.set("discount-factor", 0.1);
+    defaultValues.set("discount-factor", 0.0);
 
     // first check if the corresponding environment variables are set
     const config = new Map<string, string | number>();
@@ -87,7 +87,7 @@ async function main() {
     ]);
     Config.init(environmentConfig, playerConfig);
 
-    const map = await GridMap.new(crossableTiles);
+    const map = await GridMap.new(crossableTiles, position);
     const player = new Player(map, id, position, client, client, client);
     await player.start();
 }

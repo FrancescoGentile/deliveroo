@@ -13,14 +13,14 @@ import {
     Position,
     Utility,
 } from "src/domain/structs";
-import { Instant } from "src/utils";
+import { HashMap, HashSet, Instant } from "src/utils";
 import { UnsupportedIntentionTypeError } from "../errors";
 
 export interface State {
     readonly executedIntenion: Intention;
     position: Position;
     arrivalInstant: Instant;
-    readonly pickedParcels: [ParcelID, DecayingValue][];
+    pickedParcels: [ParcelID, DecayingValue][];
 }
 
 /**
@@ -31,15 +31,13 @@ export class Node {
 
     public readonly children: Node[] = [];
 
-    public readonly nextIntentions: Intention[];
+    public readonly nextIntentions: Intention[] = [];
 
     public readonly state: State;
 
     public readonly beliefs: BeliefSet;
 
     public utility: Utility;
-
-    private _reward = 0;
 
     private _visits = 0;
     public get visits(): number {
@@ -60,28 +58,17 @@ export class Node {
         this.beliefs = environment;
         this.parent = parent;
 
-        this.utility = new Utility(0, [], state.arrivalInstant);
+        const nextIntentions = availablePositions.map((pos) => Intention.pickup(pos));
 
-        this.nextIntentions = availablePositions.map((pos) => Intention.pickup(pos));
-
-        switch (state.executedIntenion.type) {
-            case IntentionType.PICKUP: {
-                const closestDelivery = this.beliefs.map.getClosestDeliveryPosition(state.position);
-                this.nextIntentions.push(Intention.putdown(closestDelivery));
-                break;
-            }
-            case IntentionType.PUTDOWN: {
-                for (const [, value] of state.pickedParcels) {
-                    this._reward += value.getValueByInstant(state.arrivalInstant);
-                }
-                break;
-            }
-            default: {
-                throw new UnsupportedIntentionTypeError(state.executedIntenion);
-            }
+        if (state.executedIntenion.type === IntentionType.PICKUP) {
+            // If I just executed a pickup intention, I can also add to the possible next intentions
+            // a putdown intention to the closest delivery point.
+            const closestDelivery = this.beliefs.map.getClosestDeliveryPosition(state.position);
+            nextIntentions.push(Intention.putdown(closestDelivery));
         }
 
-        this._sortIntentions();
+        this.addIntentions(nextIntentions);
+        this.utility = this._computeUtility();
     }
 
     // ------------------------------------------------------------------------
@@ -130,7 +117,7 @@ export class Node {
     public backtrack(utility: Utility) {
         this._visits += 1;
 
-        const newUtility = this._computeNewUtility(utility);
+        const newUtility = this._computeUtilityFromChild(utility);
         if (newUtility.value > this.utility.value) {
             this.utility = newUtility;
         }
@@ -140,146 +127,307 @@ export class Node {
         }
     }
 
+    /**
+     * Adds the given intentions to the set of possible next intentions
+     * and sorts them according to their greedy value.
+     *
+     * @param intentions The intentions to add.
+     */
     public addIntentions(intentions: Intention[]) {
         this.nextIntentions.push(...intentions);
         this._sortIntentions();
     }
 
+    // /**
+    //  * Adds the positions of the given parcels to the set of positions where the agent can go
+    //  * pickup parcels.
+    //  *
+    //  * @param parcels The ids of the parcels to add.
+    //  */
+    // public addNewFreeParcels(parcels: ParcelID[]) {
+    //     const positionToIdx = new Map<Position, number>();
+    //     for (const [i, intention] of this.nextIntentions.entries()) {
+    //         if (intention.type === IntentionType.PICKUP) {
+    //             positionToIdx.set(intention.position, i);
+    //         }
+    //     }
+
+    //     // if two parcels are in the same position, do not add different pickup intentions
+    //     // for each parcel
+    //     const newPositionsAdded = new HashSet<Position>();
+    //     const newIntentions: Intention[] = [];
+    //     const freeParcelsForChild: ParcelID[][] = Array(this.children.length).fill(parcels);
+    //     for (const parcelID of parcels) {
+    //         const parcel = this.beliefs.getParcelByID(parcelID)!;
+    //         const intentionIdx = positionToIdx.get(parcel.position);
+    //         if (intentionIdx !== undefined) {
+    //             if (this.children.length > intentionIdx) {
+    //                 const child = this.children[intentionIdx];
+    //                 child._addPickupParcel(parcel);
+    //                 freeParcelsForChild[intentionIdx] = freeParcelsForChild[intentionIdx].filter(
+    //                     (id) => !id.equals(parcelID),
+    //                 );
+    //             }
+    //         } else if (!newPositionsAdded.has(parcel.position)) {
+    //             newIntentions.push(Intention.pickup(parcel.position));
+    //             newPositionsAdded.add(parcel.position);
+    //         }
+    //     }
+
+    //     this.addIntentions(newIntentions);
+
+    //     for (let i = 0; i < this.children.length; i += 1) {
+    //         if (freeParcelsForChild[i].length > 0) {
+    //             this.children[i].addNewFreeParcels(freeParcelsForChild[i]);
+    //         }
+    //     }
+    //     this._updateUtility();
+    // }
+
     /**
-     * Adds the positions of the given parcels to the set of positions where the agent can go
-     * pickup parcels.
+     * Adds the given parcels to the set of parcels that the agent can pickup.
      *
-     * @param parcels The ids of the parcels to add.
-     *
-     * @throws {Error} If the new positions are already in the next intentions.
+     * @param newParcelPositions The positions of the new parcels.
+     * @param newPickedParcels The new parcels that the agent has picked.
      */
-    public addNewFreeParcels(parcels: ParcelID[]) {
-        const positionToIdx = new Map<Position, number>();
-        for (const [i, intention] of this.nextIntentions.entries()) {
-            if (intention.type === IntentionType.PICKUP) {
-                positionToIdx.set(intention.position, i);
+    public addNewFreeParcels(
+        newParcelPositions: HashMap<Position, Parcel[]>,
+        newPickedParcels?: Parcel[],
+    ) {
+        const newIntentions: Intention[] = [];
+        let newParcels = newParcelPositions;
+        let addParcels = newPickedParcels ?? [];
+
+        if (newParcels.has(this.state.executedIntenion.position)) {
+            if (this.parent !== null) {
+                // I am not the root, so it means that I have not yet executed the intention,
+                // so I can still add the parcels to my picked parcels.
+                addParcels = [...addParcels]; // we do not modify a parameter, so we create a local copy
+                addParcels.push(...newParcels.get(this.state.executedIntenion.position)!);
+
+                // since I have already picked such parcels, we do not pass to my children
+                // this position
+                newParcels = newParcels.copy();
+                newParcels.delete(this.state.executedIntenion.position);
             }
         }
 
-        const newIntentions: Intention[] = [];
-        const freeParcelsForChild: ParcelID[][] = Array(this.children.length).fill(parcels);
-        for (const parcelID of parcels) {
-            const parcel = this.beliefs.getParcelByID(parcelID)!;
-            const intentionIdx = positionToIdx.get(parcel.position);
-            if (intentionIdx !== undefined) {
-                if (this.children.length > intentionIdx) {
-                    const child = this.children[intentionIdx];
-                    child._addPickupParcel(parcel);
-                    freeParcelsForChild[intentionIdx] = freeParcelsForChild[intentionIdx].filter(
-                        (id) => !id.equals(parcelID),
-                    );
-                }
-            } else {
-                newIntentions.push(Intention.pickup(parcel.position));
+        this.state.pickedParcels.push(
+            ...addParcels.map((p) => [p.id, p.value] as [ParcelID, DecayingValue]),
+        );
+
+        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+            // since I have already put down all the new picked parcels,
+            // these are not picked for my children
+            addParcels = [];
+        }
+
+        for (const child of this.children) {
+            child.addNewFreeParcels(newParcels, addParcels);
+        }
+
+        // for the positions that are not in the next intentions, we add a pickup intention
+        // to that position
+        const nextIntentionPositions = new HashSet<Position>(
+            this.nextIntentions.map((intention) => intention.position),
+        );
+        for (const position of newParcels.keys()) {
+            if (!nextIntentionPositions.has(position)) {
+                newIntentions.push(Intention.pickup(position));
             }
         }
 
         this.addIntentions(newIntentions);
-
-        for (let i = 0; i < this.children.length; i += 1) {
-            const child = this.children[i];
-            child.addNewFreeParcels(freeParcelsForChild[i]);
-            const newUtility = this._computeNewUtility(child.utility);
-            if (newUtility.value > this.utility.value) {
-                this.utility = newUtility;
-            }
-        }
+        this.utility = this._computeUtility();
     }
 
-    public removeNoLongerFreeParcel(
-        parcelID: ParcelID,
-        oldPosition: Position,
-        value: DecayingValue,
+    public removeParcels(
+        parcelPositions: HashMap<Position, [ParcelID, DecayingValue][]>,
+        noLongerCarried?: HashSet<ParcelID>,
     ): number {
+        let removeParcels = noLongerCarried ?? new HashSet<ParcelID>();
+
+        if (parcelPositions.has(this.state.executedIntenion.position)) {
+            // some parcels have been removed from the position where I execute an intention
+            // so I have to remove them from my picked parcels
+            removeParcels = removeParcels.copy();
+            removeParcels.addAll(
+                parcelPositions.get(this.state.executedIntenion.position)!.map(([id]) => id),
+            );
+        }
+
+        // remove the parcels from my picked parcels
+        this.state.pickedParcels = this.state.pickedParcels.filter(
+            ([id]) => !removeParcels.has(id),
+        );
+
+        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+            // since I have already put down all the removed parcels,
+            // these are not removed for my children
+            removeParcels = new HashSet<ParcelID>();
+        }
+
         let totalVisitDiff = 0;
+        for (const child of this.children) {
+            totalVisitDiff += child.removeParcels(parcelPositions, removeParcels);
+        }
 
         for (let i = 0; i < this.nextIntentions.length; i += 1) {
             const intention = this.nextIntentions[i];
-            if (!intention.position.equals(oldPosition)) {
-                if (this.children.length > i) {
-                    const child = this.children[i];
-                    const visitDiff = child.removeNoLongerFreeParcel(parcelID, oldPosition, value);
-                    totalVisitDiff += visitDiff;
-                }
-            } else if (intention.type === IntentionType.PICKUP) {
-                if (this.children.length > i) {
-                    const child = this.children[i];
-                    child.partialRemoveParcel(parcelID, value);
-                }
-
-                const parcels = this.beliefs.getParcelsByPosition(intention.position);
-                if (parcels.length === 0) {
-                    const visitDiff = this._removeNextIntention(i);
-                    totalVisitDiff += visitDiff;
-                    i -= 1;
-                }
-            } else {
-                throw new UnsupportedIntentionTypeError(intention);
+            if (!parcelPositions.has(intention.position)) {
+                continue;
             }
+
+            // The next intention is a pickup intention for a position where some parcels have been
+            // removed. If in that position there are no more parcels, we can remove the intention.
+            const parcels = this.beliefs.getParcelsByPosition(intention.position);
+            if (parcels.length > 0) {
+                continue;
+            }
+
+            // Before removing the intention, we have to check if we have already expanded it.
+            // If we have already expanded it, we have to remove the child and add its visits
+            // to the total visits diff.
+            if (this.children.length > i) {
+                totalVisitDiff -= this.children[i].visits;
+                this.children.splice(i, 1);
+            }
+
+            this.nextIntentions.splice(i, 1);
+            i -= 1; // we have removed an element, so we have to go back one position
         }
 
-        for (const child of this.children) {
-            const newUtility = this._computeNewUtility(child.utility);
-            if (newUtility.value > this.utility.value) {
-                this.utility = newUtility;
-            }
+        this.utility = this._computeUtility();
+
+        // totalVisitDiff is a negative number corresponding to the visits of the removed children
+        if (totalVisitDiff > 0) {
+            throw new Error("totalVisitDiff should be negative or zero.");
+        }
+
+        this._visits += totalVisitDiff;
+        if (this._visits === 0) {
+            this._visits = 1;
         }
 
         return totalVisitDiff;
     }
 
-    public partialRemoveParcel(parcelID: ParcelID, value: DecayingValue) {
-        this.utility.parcels.delete(parcelID);
-        const idx = this.state.pickedParcels.findIndex(([id]) => id.equals(parcelID));
-        if (idx === -1) {
-            throw new Error("This should never happen.");
-        }
-        this.state.pickedParcels.splice(idx, 1);
+    // public removeNoLongerFreeParcel(
+    //     parcelID: ParcelID,
+    //     oldPosition: Position,
+    //     value: DecayingValue,
+    // ): number {
+    //     let totalVisitDiff = 0;
 
-        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            const utilitDiff = -value.getValueByInstant(this.state.arrivalInstant) * this._visits;
-            this.utility.value += utilitDiff;
-        } else {
-            for (const child of this.children) {
-                child.partialRemoveParcel(parcelID, value);
-                if (child.utility.value > this.utility.value) {
-                    this.utility = child.utility;
-                }
-            }
-        }
-    }
+    //     for (let i = 0; i < this.nextIntentions.length; i += 1) {
+    //         const intention = this.nextIntentions[i];
+    //         if (!intention.position.equals(oldPosition)) {
+    //             if (this.children.length > i) {
+    //                 const child = this.children[i];
+    //                 const visitDiff = child.removeNoLongerFreeParcel(parcelID, oldPosition, value);
+    //                 totalVisitDiff += visitDiff;
+    //             }
+    //         } else if (intention.type === IntentionType.PICKUP) {
+    //             if (this.children.length > i) {
+    //                 const child = this.children[i];
+    //                 child.partialRemoveParcel(parcelID, value);
+    //             }
 
-    public removeExpiredParcel(parcelID: ParcelID, oldPosition: Position, value: DecayingValue) {
-        const isCarried = this.state.pickedParcels.some(([id]) => id.equals(parcelID));
-        if (!isCarried) {
-            this.removeNoLongerFreeParcel(parcelID, oldPosition, value);
-        } else {
-            this.partialRemoveParcel(parcelID, value);
-        }
-    }
+    //             const parcels = this.beliefs.getParcelsByPosition(intention.position);
+    //             if (parcels.length === 0) {
+    //                 const visitDiff = this._removeNextIntention(i);
+    //                 totalVisitDiff += visitDiff;
+    //                 i -= 1;
+    //             }
+    //         } else {
+    //             throw new UnsupportedIntentionTypeError(intention);
+    //         }
+    //     }
+
+    //     this._updateUtility();
+    //     return totalVisitDiff;
+    // }
+
+    // public partialRemoveParcel(parcelID: ParcelID, value: DecayingValue) {
+    //     this.utility.parcels.delete(parcelID);
+    //     const idx = this.state.pickedParcels.findIndex(([id]) => id.equals(parcelID));
+    //     if (idx === -1) {
+    //         throw new Error("This should never happen.");
+    //     }
+    //     this.state.pickedParcels.splice(idx, 1);
+
+    //     if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+    //         this._reward = -value.getValueByInstant(this.state.arrivalInstant);
+    //         this.utility = this.utility.newWith(this._reward);
+    //     } else {
+    //         for (const child of this.children) {
+    //             child.partialRemoveParcel(parcelID, value);
+    //         }
+    //         this._updateUtility();
+    //     }
+    // }
+
+    // public removeExpiredParcel(parcelID: ParcelID, oldPosition: Position, value: DecayingValue) {
+    //     const isCarried = this.state.pickedParcels.some(([id]) => id.equals(parcelID));
+    //     if (!isCarried) {
+    //         this.removeNoLongerFreeParcel(parcelID, oldPosition, value);
+    //     } else {
+    //         this.partialRemoveParcel(parcelID, value);
+    //     }
+    // }
 
     // ------------------------------------------------------------------------
     // Private methods
     // ------------------------------------------------------------------------
 
-    private _computeNewUtility(childUtility: Utility): Utility {
+    /**
+     * Given the utility of a child node, computes the utility of the node.
+     * The utility of the node is:
+     * - the utility of the child node if the executed intention is a pickup intention;
+     * - the utility of the child node plus the value of the parcels that the agent is carrying
+     *  if the executed intention is a putdown intention.
+     *
+     * @param childUtility The utility of the child node.
+     *
+     * @returns the utility of the node.
+     */
+    private _computeUtilityFromChild(childUtility: Utility): Utility {
         let newUtility: Utility;
         if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            newUtility = childUtility.newWith(
-                this._reward,
-                this.state.pickedParcels,
+            let utilityValue = childUtility.value;
+            for (const [, value] of this.state.pickedParcels) {
+                utilityValue += value.getValueByInstant(this.state.arrivalInstant);
+            }
+
+            const utilityParcels = childUtility.parcels.copy();
+            utilityParcels.setAll(this.state.pickedParcels);
+
+            newUtility = new Utility(utilityValue, utilityParcels, this.state.arrivalInstant);
+        } else {
+            newUtility = new Utility(
+                childUtility.value,
+                childUtility.parcels,
                 this.state.arrivalInstant,
             );
-        } else {
-            newUtility = childUtility;
         }
 
         return newUtility;
+    }
+
+    /**
+     * Computes the utility of the node.
+     *
+     * @returns the utility of the node.
+     */
+    private _computeUtility(): Utility {
+        let bestChildUtility: Utility = Utility.zero(this.state.arrivalInstant);
+        for (const child of this.children) {
+            if (child.utility.value > this.utility.value) {
+                bestChildUtility = child.utility;
+            }
+        }
+
+        return this._computeUtilityFromChild(bestChildUtility);
     }
 
     /**
@@ -406,6 +554,14 @@ export class Node {
 
         if (bestChild === null) {
             // This should never happen.
+            console.log("My state: ", this.state);
+            console.log("--------------------------");
+            for (const child of this.children) {
+                console.log("Child: ", child.state.executedIntenion);
+                console.log("Utility: ", child.utility);
+                console.log("Visits: ", child.visits);
+                console.log("--------------------------");
+            }
             throw new Error("No best child found.");
         }
 
@@ -521,102 +677,91 @@ export class Node {
         }
     }
 
-    private _addPickupParcel(parcel: Parcel) {
-        this.state.pickedParcels.push([parcel.id, parcel.value]);
-        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            let newReward = 0;
-            for (const [, value] of this.state.pickedParcels) {
-                newReward += value.getValueByInstant(this.state.arrivalInstant);
-            }
+    // private _addPickupParcel(parcel: Parcel) {
+    //     if (this.state.pickedParcels.some(([id]) => id.equals(parcel.id))) {
+    //         throw new Error("I am adding a parcel that I already have.");
+    //     }
+    //     this.state.pickedParcels.push([parcel.id, parcel.value]);
+    //     this.utility.parcels.set(parcel.id, parcel.value);
 
-            const diffInReward = newReward - this._reward;
-            this._reward = newReward;
-            this.utility.value += diffInReward;
-        } else {
-            for (const child of this.children) {
-                child._addPickupParcel(parcel);
-                if (child.utility.value > this.utility.value) {
-                    this.utility = child.utility;
-                }
-            }
-        }
-    }
+    //     if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+    //         this._reward += parcel.value.getValueByInstant(this.state.arrivalInstant);
+    //         this.utility = this.utility.newWith(this._reward);
+    //     } else {
+    //         for (const child of this.children) {
+    //             child._addPickupParcel(parcel);
+    //         }
+    //         this._updateUtility();
+    //     }
+    // }
 
-    private _removeNextIntention(i: number): number {
-        this.nextIntentions.splice(i, 1);
+    // private _removeNextIntention(i: number): number {
+    //     this.nextIntentions.splice(i, 1);
 
-        let totalVisitDiff = 0;
+    //     let totalVisitDiff = 0;
 
-        if (this.children.length > i) {
-            const child = this.children.splice(i, 1)[0];
-            for (const grandChild of child.children) {
-                const gcIntentionIdx = this.nextIntentions.findIndex((intention) => {
-                    return intention.equals(grandChild.state.executedIntenion);
-                });
-                if (gcIntentionIdx === -1) {
-                    if (grandChild.state.executedIntenion.type === IntentionType.PICKUP) {
-                        throw new Error("This should never happen.");
-                    }
+    //     if (this.children.length > i) {
+    //         const child = this.children.splice(i, 1)[0];
+    //         for (const grandChild of child.children) {
+    //             const gcIntentionIdx = this.nextIntentions.findIndex((intention) => {
+    //                 return intention.equals(grandChild.state.executedIntenion);
+    //             });
+    //             if (gcIntentionIdx === -1) {
+    //                 if (grandChild.state.executedIntenion.type === IntentionType.PICKUP) {
+    //                     console.log(
+    //                         "In removeNextIntention this should not happen: ",
+    //                         grandChild.state.executedIntenion,
+    //                     );
+    //                 }
 
-                    continue;
-                }
+    //                 continue;
+    //             }
 
-                if (this.children.length > gcIntentionIdx) {
-                    // we have already expanded this intention
-                    totalVisitDiff += grandChild.visits;
-                } else {
-                    // we can insert the grandchild as a child of this node
-                    const { movementDuration } = Config.getEnvironmentConfig();
-                    const distance = this.beliefs.map.distance(
-                        this.state.position,
-                        grandChild.state.position,
-                    );
-                    const newArrivalInstant = this.state.arrivalInstant.add(
-                        movementDuration.multiply(distance),
-                    );
+    //             if (this.children.length > gcIntentionIdx) {
+    //                 // we have already expanded this intention
+    //                 totalVisitDiff += grandChild.visits;
+    //             } else {
+    //                 // we can insert the grandchild as a child of this node
+    //                 const { movementDuration } = Config.getEnvironmentConfig();
+    //                 const distance = this.beliefs.map.distance(
+    //                     this.state.position,
+    //                     grandChild.state.position,
+    //                 );
+    //                 const newArrivalInstant = this.state.arrivalInstant.add(
+    //                     movementDuration.multiply(distance),
+    //                 );
 
-                    grandChild._updateArrivalInstant(newArrivalInstant);
+    //                 grandChild._updateArrivalInstant(newArrivalInstant);
 
-                    // swap the next intention with the grandchild's intention
-                    this.nextIntentions[gcIntentionIdx] = this.nextIntentions[i];
-                    this.nextIntentions[i] = grandChild.state.executedIntenion;
-                    this.children[i] = grandChild;
-                    grandChild.parent = this;
-                }
-            }
+    //                 // swap the next intention with the grandchild's intention
+    //                 this.nextIntentions[gcIntentionIdx] = this.nextIntentions[i];
+    //                 this.nextIntentions[i] = grandChild.state.executedIntenion;
+    //                 this.children[i] = grandChild;
+    //                 grandChild.parent = this;
+    //             }
+    //         }
 
-            for (const child of this.children) {
-                const newUtility = this._computeNewUtility(child.utility);
-                if (newUtility.value > this.utility.value) {
-                    this.utility = newUtility;
-                }
-            }
-        }
+    //         this._updateUtility();
+    //     }
 
-        return totalVisitDiff;
-    }
+    //     return totalVisitDiff;
+    // }
 
-    private _updateArrivalInstant(newInstant: Instant) {
-        let bestChildUtility = Utility.zero(newInstant);
-        for (const child of this.children) {
-            child._updateArrivalInstant(newInstant);
-            if (child.utility.value > bestChildUtility.value) {
-                bestChildUtility = child.utility;
-            }
-        }
+    // private _updateArrivalInstant(newInstant: Instant) {
+    //     this.state.arrivalInstant = newInstant;
+    //     if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
+    //         let newReward = 0;
+    //         for (const [, value] of this.state.pickedParcels) {
+    //             newReward += value.getValueByInstant(newInstant);
+    //         }
 
-        if (this.state.executedIntenion.type === IntentionType.PUTDOWN) {
-            let newReward = 0;
-            for (const [, value] of this.state.pickedParcels) {
-                newReward += value.getValueByInstant(newInstant);
-            }
+    //         this._reward = newReward;
+    //     }
 
-            this._reward = newReward;
-            this.utility = bestChildUtility.newWith(
-                newReward,
-                this.state.pickedParcels,
-                newInstant,
-            );
-        }
-    }
+    //     for (const child of this.children) {
+    //         child._updateArrivalInstant(newInstant);
+    //     }
+
+    //     this._updateUtility();
+    // }
 }

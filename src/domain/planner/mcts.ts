@@ -7,11 +7,12 @@ import {
     DecayingValue,
     Intention,
     IntentionType,
+    Parcel,
     ParcelID,
     Position,
     Utility,
 } from "src/domain/structs";
-import { Instant } from "src/utils";
+import { HashMap, Instant } from "src/utils";
 import treefy from "treeify";
 import { MCTSNotStartedError } from "../errors";
 import { Node, State } from "./node";
@@ -172,14 +173,26 @@ export class MonteCarloTreeSearch {
         this._root.addIntentions(newIntentions);
     }
 
+    public getCarryingParcels(): ParcelID[] {
+        if (this._root === null) {
+            throw new MCTSNotStartedError();
+        }
+
+        return this._root.state.pickedParcels.map(([id]) => id);
+    }
+
     public removeCarryingParcels(): ParcelID[] {
         if (this._root === null) {
             throw new MCTSNotStartedError();
         }
 
-        const parcels = this._root.state.pickedParcels;
-        for (const [id, parcel] of parcels) {
-            this._root.partialRemoveParcel(id, parcel);
+        const parcels = [...this._root.state.pickedParcels];
+        const parcelPositions = new HashMap<Position, [ParcelID, DecayingValue][]>();
+        parcelPositions.set(this._root.state.executedIntenion.position, parcels);
+
+        this._root.removeParcels(parcelPositions);
+        if (this._root.state.pickedParcels.length > 0) {
+            throw new Error("Could not remove all parcels.");
         }
 
         return parcels.map(([id]) => id);
@@ -207,22 +220,45 @@ export class MonteCarloTreeSearch {
             return;
         }
 
-        if (noLongerFreeParcels.length > 0) {
-            for (const [id, pos, value] of noLongerFreeParcels) {
-                this._root.removeNoLongerFreeParcel(id, pos, value);
+        const removeParcelPositions = new HashMap<Position, [ParcelID, DecayingValue][]>();
+        const addParcelPositions = new HashMap<Position, Parcel[]>();
+
+        for (const id of newFreeParcels) {
+            const parcel = this._beliefs.getParcelByID(id)!;
+            if (!addParcelPositions.has(parcel.position)) {
+                addParcelPositions.set(parcel.position, []);
             }
+
+            addParcelPositions.get(parcel.position)!.push(parcel);
         }
 
-        if (changedPositionParcels.length > 0) {
-            for (const [id, oldPos, newPos] of changedPositionParcels) {
-                const value = this._beliefs.getParcelByID(id)!.value;
-                this._root.removeNoLongerFreeParcel(id, oldPos, value);
-                newFreeParcels.push(id);
+        for (const [id, oldPos, newPos] of changedPositionParcels) {
+            if (!removeParcelPositions.has(oldPos)) {
+                removeParcelPositions.set(oldPos, []);
             }
+
+            if (!addParcelPositions.has(newPos)) {
+                addParcelPositions.set(newPos, []);
+            }
+
+            const parcel = this._beliefs.getParcelByID(id)!;
+            removeParcelPositions.get(oldPos)!.push([id, parcel.value]);
+            addParcelPositions.get(newPos)!.push(parcel);
         }
 
-        if (newFreeParcels.length > 0) {
-            this._root.addNewFreeParcels(newFreeParcels);
+        for (const [id, pos, value] of noLongerFreeParcels) {
+            if (!removeParcelPositions.has(pos)) {
+                removeParcelPositions.set(pos, []);
+            }
+
+            removeParcelPositions.get(pos)!.push([id, value]);
+        }
+
+        if (removeParcelPositions.size > 0) {
+            this._root.removeParcels(removeParcelPositions);
+        }
+        if (addParcelPositions.size > 0) {
+            this._root.addNewFreeParcels(addParcelPositions);
         }
     }
 
@@ -231,9 +267,16 @@ export class MonteCarloTreeSearch {
             return;
         }
 
+        const removeParcelPositions = new HashMap<Position, [ParcelID, DecayingValue][]>();
         for (const [id, pos, value] of parcels) {
-            this._root.removeExpiredParcel(id, pos, value);
+            if (!removeParcelPositions.has(pos)) {
+                removeParcelPositions.set(pos, []);
+            }
+
+            removeParcelPositions.get(pos)!.push([id, value]);
         }
+
+        this._root.removeParcels(removeParcelPositions);
     }
 
     private _getTree(children: Node[]): any {

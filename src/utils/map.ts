@@ -24,6 +24,12 @@ export class HashMap<K extends Hashable, V> {
         this._map.set(key.hash(), [key, value]);
     }
 
+    public setAll(pairs: [K, V][]): void {
+        for (const [key, value] of pairs) {
+            this.set(key, value);
+        }
+    }
+
     public has(key: K): boolean {
         return this._map.has(key.hash());
     }

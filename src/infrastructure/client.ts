@@ -126,14 +126,16 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         this._socket.on("agents sensing", (agents) => {
             const newAgents: Agent[] = [];
             for (const agent of agents) {
-                newAgents.push(
-                    new Agent(
-                        new AgentID(agent.id),
-                        new Position(Math.ceil(agent.x), Math.ceil(agent.y)),
-                        agent.score,
-                        false,
-                    ),
-                );
+                if (Number.isInteger(agent.x) && Number.isInteger(agent.y)) {
+                    newAgents.push(
+                        new Agent(
+                            new AgentID(agent.id),
+                            new Position(agent.x, agent.y),
+                            agent.score,
+                            false,
+                        ),
+                    );
+                }
             }
 
             if (newAgents.length > 0) {

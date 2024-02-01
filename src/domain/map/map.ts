@@ -21,9 +21,12 @@ export class GridMap {
      *
      * @returns A new graph.
      */
-    public static async new(tiles: Tile[]): Promise<GridMap> {
+    public static async new(tiles: Tile[], position: Position): Promise<GridMap> {
         const graph = await buildGraph(tiles);
-        const deliveryTiles = tiles.filter((tile) => tile.delivery);
+        const deliveryTiles = tiles.filter(
+            (tile) =>
+                tile.delivery && graph.hasUndirectedEdge(position.hash(), tile.position.hash()),
+        );
 
         let nRows = 0;
         let nCols = 0;
@@ -59,6 +62,10 @@ export class GridMap {
         }
 
         return this._distance(from, to);
+    }
+
+    public isReachable(from: Position, to: Position): boolean {
+        return this._graph.hasUndirectedEdge(from.hash(), to.hash());
     }
 
     /**

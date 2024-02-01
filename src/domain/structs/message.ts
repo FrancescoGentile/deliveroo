@@ -40,6 +40,7 @@ export interface HelloMessage {
 export interface ParcelSensingMessage {
     type: MessageType.PARCEL_SENSING;
     position: Position;
+    nextPosition: Position | null;
     parcels: Parcel[];
 }
 
@@ -50,6 +51,7 @@ export interface ParcelSensingMessage {
 export interface AgentSensingMessage {
     type: MessageType.AGENT_SENSING;
     position: Position;
+    nextPosition: Position | null;
     agents: Agent[];
 }
 
@@ -86,6 +88,7 @@ export function serializeMessage(message: Message): string {
             return JSON.stringify({
                 type: message.type,
                 position: message.position.serialize(),
+                nextPosition: message.nextPosition?.serialize() ?? null,
                 parcels: message.parcels.map((parcel) => parcel.serialize()),
             });
         }
@@ -93,6 +96,7 @@ export function serializeMessage(message: Message): string {
             return JSON.stringify({
                 type: message.type,
                 position: message.position.serialize(),
+                nextPosition: message.nextPosition?.serialize() ?? null,
                 agents: message.agents.map((agent) => agent.serialize()),
             });
         }
@@ -135,6 +139,9 @@ export function deserializeMessage(message: string): Message {
             return {
                 type: MessageType.PARCEL_SENSING,
                 position: Position.deserialize(parsedMessage.position),
+                nextPosition: parsedMessage.nextPosition
+                    ? Position.deserialize(parsedMessage.nextPosition)
+                    : null,
                 parcels: parsedMessage.parcels.map((parcel: any) => Parcel.deserialize(parcel)),
             };
         }
@@ -142,6 +149,9 @@ export function deserializeMessage(message: string): Message {
             return {
                 type: MessageType.AGENT_SENSING,
                 position: Position.deserialize(parsedMessage.position),
+                nextPosition: parsedMessage.nextPosition
+                    ? Position.deserialize(parsedMessage.nextPosition)
+                    : null,
                 agents: parsedMessage.agents.map((agent: any) => Agent.deserialize(agent)),
             };
         }

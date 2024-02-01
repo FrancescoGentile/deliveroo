@@ -12,11 +12,11 @@ import { DecayingValue } from "./value";
  * This represents the potential value of a set of parcels at a given instance of time.
  */
 export class Utility {
-    public value: number;
+    public readonly value: number;
 
-    public parcels: HashMap<ParcelID, DecayingValue>;
+    public readonly parcels: HashMap<ParcelID, DecayingValue>;
 
-    public time: Instant;
+    public readonly time: Instant;
 
     public constructor(
         value: number,
@@ -46,37 +46,19 @@ export class Utility {
      * @returns The value.
      */
     public getValueByInstant(instant: Instant, discounts?: HashMap<ParcelID, number>): number {
+        if (instant.milliseconds < this.time.milliseconds) {
+            throw new Error("Cannot comute an utility in the past");
+        }
+
         let valueDiff = 0;
 
         for (const [id, value] of this.parcels.entries()) {
             const discount = discounts?.get(id) ?? 1;
-            valueDiff += value.getValueDiff(this.time, instant) * discount;
+            const diff = value.getValueDiff(this.time, instant) * discount;
+            valueDiff += Math.min(diff, value.getMaxValue());
         }
 
         const value = this.value - valueDiff;
         return value < 0 ? 0 : value;
-    }
-
-    /**
-     * Returns a new utility:
-     * - with the given reward added to the value
-     * - with the given parcels added to the parcels
-     * - with the given time
-     *
-     * @param reward The reward to add to the utility's value
-     * @param parcels The parcels to add to the utility's parcels
-     * @param time The time to set
-     *
-     * @returns The new utility
-     */
-    public newWith(reward: number, parcels: [ParcelID, DecayingValue][], time: Instant): Utility {
-        const newValue = this.value + reward;
-        const newParcels = this.parcels.copy();
-
-        for (const [id, value] of parcels) {
-            newParcels.set(id, value);
-        }
-
-        return new Utility(newValue, newParcels, time);
     }
 }

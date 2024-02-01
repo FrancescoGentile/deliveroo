@@ -36,6 +36,8 @@ export class Player {
 
     private _position: Position;
 
+    private _nextPosition: Position | null = null;
+
     private readonly _sensors: Sensors;
 
     private readonly _actuators: Actuators;
@@ -49,8 +51,6 @@ export class Player {
     private _blockedBottlenecks: [HashSet<Position>, Intention][] = [];
 
     private _shouldRun = false;
-
-    private _followedAgent: AgentID | null = null;
 
     private _moveIntention: Intention | null = null;
 
@@ -111,6 +111,10 @@ export class Player {
     public async start() {
         this._shouldRun = true;
 
+        // before starting the planner, we wait for some time so that we can at least
+        // sense some parcels, otherwise running the planners with zero parcels is useless
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
         // this is to ensure that the planner executes at least some iterations before the player
         // starts moving
         const plannerPromise = this._planner.start(this._position);
@@ -144,21 +148,25 @@ export class Player {
      */
     private async _run() {
         while (this._shouldRun) {
-            if (this._followedAgent !== null) {
-                await this._followAgent();
+            const action = await this._getNextAction();
+            if (action instanceof AgentID) {
+                await this._followAgent(action);
             } else {
-                await this._performIntention();
+                await this._performIntention(action);
             }
 
+            console.log("--------------------------------------------");
             await new Promise((resolve) => setImmediate(resolve));
         }
     }
 
-    private async _followAgent() {
+    private async _followAgent(agent: AgentID) {
+        let numMoves = 0;
         while (true) {
-            const mate = this._beliefs.getTeamMate(this._followedAgent!);
+            console.log("Following agent: ", agent);
+            const mate = this._beliefs.getTeamMate(agent);
             const distance = this._beliefs.map.distance(this._position, mate.position);
-            if (distance <= 2) {
+            if (distance <= 2 && numMoves > 0) {
                 break;
             }
 
@@ -166,18 +174,22 @@ export class Player {
                 this._position,
                 mate.position,
             )!;
+            this._nextPosition = this._position.moveTo(possibleDirections[0]);
+
             for (const direction of possibleDirections) {
                 if (await this._actuators.move(direction)) {
                     this._position = this._position.moveTo(direction);
                     this._planner.updatePosition(this._position);
+                    numMoves += 1;
                     break;
                 }
             }
+
+            this._nextPosition = null;
         }
 
         await this._actuators.putdown(null);
-        this._followedAgent = null;
-        this._sendMessage({ type: MessageType.IGNORE, ignore: false });
+        await this._sendMessage({ type: MessageType.IGNORE, ignore: false });
         const [intentionScores] = this._computeIntentionsScores(Instant.now());
         const message: IntentionUpdateMessage = {
             type: MessageType.INTENTION_UPDATE,
@@ -186,10 +198,9 @@ export class Player {
         await this._sendMessage(message);
     }
 
-    private async _performIntention() {
-        const intention = await this._getBestIntention();
-
-        // console.log(intention);
+    private async _performIntention(intention: Intention) {
+        console.log("I am here: ", this._position);
+        console.log("I want to do: ", intention);
         // this._planner.printTree(Instant.now(), this._position);
 
         if (this._position.equals(intention.position)) {
@@ -238,6 +249,8 @@ export class Player {
                 )!;
             }
 
+            this._nextPosition = this._position.moveTo(possibleDirections[0]);
+
             let hasMoved = false;
             for (const direction of possibleDirections) {
                 if (await this._actuators.move(direction)) {
@@ -247,6 +260,8 @@ export class Player {
                     break;
                 }
             }
+
+            this._nextPosition = null;
 
             if (!hasMoved) {
                 const path = this._beliefs.recomputePath(this._position, intention.position);
@@ -271,7 +286,7 @@ export class Player {
      * 3. If the player is assigned an intention that has an utility greater than 0, return that intention.
      * 4. Otherwise, compute the best move intention that the player can execute and return it.
      */
-    private async _getBestIntention(): Promise<Intention> {
+    private async _getNextAction(): Promise<Intention | AgentID> {
         const now = Instant.now();
 
         const [intentionUtilities, allScoresZero, numPutdowns, numUnreachablePutdowns] =
@@ -284,15 +299,25 @@ export class Player {
         await this._sendMessage(message);
 
         if (allScoresZero && numPutdowns > 0) {
+            console.log("I cannot do the putdown");
+
             if (numUnreachablePutdowns < numPutdowns) {
+                console.log("Some putdown are reachable, but I decide to ignore them and move.");
                 return this._getBestMoveIntention();
             }
 
             if (numPutdowns < this._beliefs.map.deliveryTiles.length) {
+                console.log("Let's first check if we can do some putdowns.");
                 this._planner.addAllPutdownIntentions();
                 return this._getBestMoveIntention();
             }
 
+            if (this._planner.getCarryingParcels().length === 0) {
+                console.log("I am not carrying any parcels, so I will move.");
+                return this._getBestMoveIntention();
+            }
+
+            console.log("I cannot do any putdown, so I will follow a team mate.");
             // all possible putdown intentions are blocked
             // so we follow the closest team mate and we give them the parcels
             const closestTeamMate = this._findClosestTeamMate();
@@ -300,9 +325,10 @@ export class Player {
                 return this._getBestMoveIntention();
             }
 
-            this._followedAgent = closestTeamMate;
-            this._sendMessage({ type: MessageType.IGNORE, ignore: true });
-            this._beliefs.addIgnoredParcels(this._planner.removeCarryingParcels());
+            await this._sendMessage({ type: MessageType.IGNORE, ignore: true });
+            const carryingParcels = this._planner.removeCarryingParcels();
+            this._beliefs.addIgnoredParcels(carryingParcels);
+            return closestTeamMate;
         }
 
         const [mateToIdx, intentionToIdx, idxToIntention] = this._computeIntentionMateMaps(
@@ -312,6 +338,11 @@ export class Player {
 
         const matrix = this._computeCostMatrix(mateToIdx, intentionToIdx, intentionUtilities);
         const result = linearSumAssignment(matrix, { maximaze: true });
+        // for (const [idx, intention] of idxToIntention.entries()) {
+        //     console.log(`${idx}: ${intention}`);
+        // }
+        // console.log(matrix);
+        // console.log(result.columnAssignments);
 
         const newParcelDiscounts = new HashMap<ParcelID, number>();
         const columnAssignments = result.columnAssignments;
@@ -436,9 +467,6 @@ export class Player {
                 intentionToIdx.set(intention, intentionIdx);
                 idxToIntention.set(intentionIdx, intention);
                 intentionIdx += 1;
-            } else {
-                // This should never happen. If it does, it means that there is a bug in the planner.
-                throw new Error("Intention already exists.");
             }
         }
 
@@ -473,7 +501,7 @@ export class Player {
         const matrix: number[][] = [];
         // mateToIdx + 1 because the first row is for the player
         for (let i = 0; i < mateToIdx.size + 1; i++) {
-            matrix.push(new Array(mateToIdx.size).fill(0));
+            matrix.push(new Array(intentionToIdx.size).fill(0));
         }
 
         for (const [intention, utility] of intentionUtilities) {
@@ -486,6 +514,16 @@ export class Player {
                 matrix[idx][intentionToIdx.get(intention)!] = utility;
             }
         }
+
+        console.log("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
+        for (const [intention, idx] of intentionToIdx.entries()) {
+            console.log(`${idx}: ${intention}`);
+        }
+        console.log("Cost matrix:");
+        for (const row of matrix) {
+            console.log(row);
+        }
+        console.log("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
 
         return matrix;
     }
@@ -578,7 +616,11 @@ export class Player {
                 continue;
             }
 
-            const distance = this._beliefs.map.distance(this._position, mate.position);
+            const distance = this._beliefs.map.distanceIfPossible(this._position, mate.position);
+            if (distance === null) {
+                continue;
+            }
+
             if (distance < closestDistance) {
                 closestTeamMate = agentID;
                 closestDistance = distance;
@@ -663,6 +705,7 @@ export class Player {
         const message: ParcelSensingMessage = {
             type: MessageType.PARCEL_SENSING,
             position: this._position,
+            nextPosition: this._nextPosition,
             parcels,
         };
 
@@ -682,7 +725,7 @@ export class Player {
         }
 
         this._beliefs.updateParcels(message.parcels, message.position);
-        this._beliefs.updateTeamMatePosition(sender, message.position);
+        this._beliefs.updateTeamMatePosition(sender, message.position, message.nextPosition);
     }
 
     /**
@@ -691,11 +734,12 @@ export class Player {
      * @param agents The agents that were sensed.
      */
     private async _onLocalAgentSensing(agents: Agent[]) {
-        this._beliefs.updateAgents(agents, this._position);
+        this._beliefs.updateAgents(agents, this._position, this._nextPosition, this._beliefs.myID);
 
         const message: AgentSensingMessage = {
             type: MessageType.AGENT_SENSING,
             position: this._position,
+            nextPosition: this._nextPosition,
             agents,
         };
 
@@ -708,8 +752,8 @@ export class Player {
             return;
         }
 
-        this._beliefs.updateAgents(message.agents, message.position);
-        this._beliefs.updateTeamMatePosition(sender, message.position);
+        this._beliefs.updateAgents(message.agents, message.position, message.nextPosition, sender);
+        // this._beliefs.updateTeamMatePosition(sender, message.position);
     }
 
     /**
@@ -728,6 +772,12 @@ export class Player {
     }
 
     private _onOccupiedPositionsChange() {
+        if (this._moveIntention !== null) {
+            if (this._beliefs.isPositionOccupied(this._moveIntention.position)) {
+                this._moveIntention = null;
+            }
+        }
+
         const oldActualPaths = this._actualPaths;
         const oldBlockedBottlenecks = this._blockedBottlenecks;
 
@@ -736,7 +786,9 @@ export class Player {
 
         const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
 
+        // console.log("------");
         for (const agent of this._beliefs.getVisibleAgents()) {
+            // console.log("Visible agent: ", agent);
             for (const [idx, [bottleneck, intention]] of oldBlockedBottlenecks.entries()) {
                 if (bottleneck.has(agent.position)) {
                     if (oldActualPaths.has(intention)) {
@@ -753,5 +805,10 @@ export class Player {
 
         this._actualPaths = newActualPaths;
         this._blockedBottlenecks = newBlockedBottlenecks;
+        // console.log("Blocked bottlenecks:");
+        // for (const [bottleneck, intention] of newBlockedBottlenecks) {
+        //     console.log("Bottleneck: ", intention, bottleneck);
+        // }
+        // console.log("------");
     }
 }

@@ -37,7 +37,7 @@ export class HashSet<V extends Hashable> {
         this._map.clear();
     }
 
-    public clone(): HashSet<V> {
+    public copy(): HashSet<V> {
         const clone = new HashSet<V>();
         for (const value of this.values()) {
             clone.add(value);
