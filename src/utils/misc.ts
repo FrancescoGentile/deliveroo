@@ -117,3 +117,31 @@ export function normalized_entropy(counts: number[]): number {
     const entropy = counts.reduce((a, b) => a + (b / total) * Math.log2(b / total), 0);
     return -entropy / Math.log2(counts.length);
 }
+
+/**
+ * Shuffles the given array in place.
+ *
+ * @param array The array.
+ *
+ * @returns The shuffled array (the same as the input array).
+ */
+export function shuffle_in_place<T>(array: T[]): T[] {
+    for (let i = array.length - 1; i > 0; i -= 1) {
+        const j = getRandomInt(i + 1);
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+
+    return array;
+}
+
+/**
+ * Returns a shuffled copy of the given array.
+ *
+ * @param array The array.
+ *
+ * @returns The shuffled array.
+ */
+export function shuffle<T>(array: T[]): T[] {
+    const res = array.slice();
+    return shuffle_in_place(res);
+}

@@ -32,6 +32,7 @@ export class MonteCarloTreeSearch {
     public constructor(enviroment: BeliefSet) {
         this._beliefs = enviroment;
 
+        this._beliefs.onMyPositionChange(this._updatePosition.bind(this));
         this._beliefs.onParcelsChange(this._onParcelsChange.bind(this));
         this._beliefs.onExpiredParcels(this._onExpiredParcels.bind(this));
     }
@@ -44,19 +45,17 @@ export class MonteCarloTreeSearch {
      * Starts the MCTS algorithm.
      * To stop the algorithm, call stop().
      *
-     * @param position The current position of the agent.
-     *
      * @throws {Error} If the MCTS algorithm is already started.
      */
-    public async start(position: Position) {
+    public async start() {
         if (this._root !== null) {
             throw new Error("MCTS already started. If you want to restart it, call stop() first.");
         }
 
         // we create a fake state to start the search
         const state: State = {
-            executedIntenion: Intention.putdown(position),
-            position,
+            executedIntenion: Intention.putdown(this._beliefs.myPosition),
+            position: this._beliefs.myPosition,
             arrivalInstant: Instant.now(),
             pickedParcels: [],
         };
@@ -94,20 +93,6 @@ export class MonteCarloTreeSearch {
     }
 
     /**
-     * Updates the current position of the agent.
-     *
-     * @param position The new position of the agent.
-     */
-    public updatePosition(position: Position) {
-        if (this._root === null) {
-            throw new MCTSNotStartedError();
-        }
-
-        this._root.state.arrivalInstant = Instant.now();
-        this._root.state.position = position;
-    }
-
-    /**
      * Executes an intention.
      * This method should be called when the agent executes an intention to update the tree
      * by setting the subtree of the executed intention as the new root.
@@ -124,13 +109,30 @@ export class MonteCarloTreeSearch {
         const child = this._root.children.find((child) =>
             child.state.executedIntenion.equals(intention),
         );
-        if (child === undefined) {
-            throw new Error("Intention not found.");
-        }
+        if (child !== undefined) {
+            this._root = child;
+            this._root.parent = null;
+            this._root.state.arrivalInstant = Instant.now();
+        } else {
+            // It may happen that while the player is executing an intention, the environment
+            // changes and the intention is removed from the tree. In this case, we start a new
+            // search from the state of the executed intention.
+            let pickedParcels: [ParcelID, DecayingValue][];
+            if (this._root.state.executedIntenion.type === IntentionType.PUTDOWN) {
+                pickedParcels = [];
+            } else {
+                pickedParcels = [...this._root.state.pickedParcels];
+            }
 
-        this._root = child;
-        this._root.parent = null;
-        this._root.state.arrivalInstant = Instant.now();
+            const state: State = {
+                executedIntenion: intention,
+                position: intention.position,
+                pickedParcels,
+                arrivalInstant: Instant.now(),
+            };
+
+            this._root = new Node(state, this._beliefs.getParcelPositions(), this._beliefs);
+        }
     }
 
     /**
@@ -210,6 +212,15 @@ export class MonteCarloTreeSearch {
     // ------------------------------------------------------------------------
     // Private methods
     // ------------------------------------------------------------------------
+
+    public _updatePosition(position: Position) {
+        if (this._root === null) {
+            return;
+        }
+
+        this._root.state.arrivalInstant = Instant.now();
+        this._root.state.position = position;
+    }
 
     private _onParcelsChange(
         newFreeParcels: ParcelID[],

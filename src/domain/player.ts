@@ -2,7 +2,7 @@
 //
 //
 
-import { HashMap, HashSet, Instant, getRandomInt } from "src/utils";
+import { HashMap, HashSet, Instant, getRandomInt, shuffle_in_place } from "src/utils";
 import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
 import { GridMap } from "./map";
@@ -16,6 +16,7 @@ import {
     DecayingValue,
     Direction,
     HelloMessage,
+    IgnoreMeMessage,
     Intention,
     IntentionType,
     IntentionUpdateMessage,
@@ -25,6 +26,8 @@ import {
     ParcelID,
     ParcelSensingMessage,
     Position,
+    PositionUpdateMessage,
+    VisibleAgent,
 } from "./structs";
 
 import { linearSumAssignment } from "linear-sum-assignment";
@@ -33,10 +36,6 @@ export class Player {
     private readonly _beliefs: BeliefSet;
 
     private readonly _planner: MonteCarloTreeSearch;
-
-    private _position: Position;
-
-    private _nextPosition: Position | null = null;
 
     private readonly _sensors: Sensors;
 
@@ -66,8 +65,7 @@ export class Player {
         actuators: Actuators,
         messenger: Messenger,
     ) {
-        this._beliefs = new BeliefSet(map, id);
-        this._position = position;
+        this._beliefs = new BeliefSet(map, id, position);
         this._sensors = sensors;
         this._actuators = actuators;
         this._messenger = messenger;
@@ -80,22 +78,23 @@ export class Player {
             messenger.shoutHelloMessage({
                 type: MessageType.HELLO,
                 ciphered_id,
+                position: this._beliefs.myPosition,
             });
         }, config.helloInterval.milliseconds);
 
         this._planner = new MonteCarloTreeSearch(this._beliefs);
 
         // Add event listeners.
+        this._sensors.onPositionUpdate(this._onLocalPositionUpdate.bind(this));
         this._sensors.onParcelSensing(this._onLocalParcelSensing.bind(this));
         this._sensors.onAgentSensing(this._onLocalAgentSensing.bind(this));
 
         this._messenger.onHelloMessage(this._onHello.bind(this));
+        this._messenger.onPositionUpdateMessage(this._onRemotePositionUpdate.bind(this));
         this._messenger.onParcelSensingMessage(this._onRemoteParcelSensing.bind(this));
         this._messenger.onAgentSensingMessage(this._onRemoteAgentSensing.bind(this));
         this._messenger.onIntentionUpdateMessage(this._onRemoteIntentionUpdate.bind(this));
-        this._messenger.onIgnoreMeMessage((sender, message) =>
-            this._beliefs.updateTeamMateIgnore(sender, message.ignore),
-        );
+        this._messenger.onIgnoreMeMessage(this._onIgnoreMe.bind(this));
 
         this._beliefs.onOccupiedPositionsChange(this._onOccupiedPositionsChange.bind(this));
     }
@@ -117,7 +116,7 @@ export class Player {
 
         // this is to ensure that the planner executes at least some iterations before the player
         // starts moving
-        const plannerPromise = this._planner.start(this._position);
+        const plannerPromise = this._planner.start();
         for (let i = 0; i < Config.getPlayerConfig().startIterations; i++) {
             this._planner.runIteration();
         }
@@ -165,27 +164,23 @@ export class Player {
         while (true) {
             console.log("Following agent: ", agent);
             const mate = this._beliefs.getTeamMate(agent);
-            const distance = this._beliefs.map.distance(this._position, mate.position);
+            const distance = this._beliefs.map.distance(this._beliefs.myPosition, mate.position);
             if (distance <= 2 && numMoves > 0) {
                 break;
             }
 
             const possibleDirections = this._beliefs.map.getNextDirection(
-                this._position,
+                this._beliefs.myPosition,
                 mate.position,
             )!;
-            this._nextPosition = this._position.moveTo(possibleDirections[0]);
 
             for (const direction of possibleDirections) {
                 if (await this._actuators.move(direction)) {
-                    this._position = this._position.moveTo(direction);
-                    this._planner.updatePosition(this._position);
+                    this._planner._updatePosition(this._beliefs.myPosition);
                     numMoves += 1;
                     break;
                 }
             }
-
-            this._nextPosition = null;
         }
 
         await this._actuators.putdown(null);
@@ -199,11 +194,60 @@ export class Player {
     }
 
     private async _performIntention(intention: Intention) {
-        console.log("I am here: ", this._position);
+        console.log("I am here: ", this._beliefs.myPosition);
         console.log("I want to do: ", intention);
         // this._planner.printTree(Instant.now(), this._position);
 
-        if (this._position.equals(intention.position)) {
+        let possibleDirections: Direction[];
+        if (this._actualPaths.has(intention)) {
+            const [position, path] = this._actualPaths.get(intention)!;
+
+            if (path === null) {
+                return;
+            }
+
+            if (this._beliefs.myPosition.equals(position)) {
+                if (path.length === 0) {
+                    possibleDirections = [Direction.NONE];
+                } else {
+                    possibleDirections = [path.shift()!];
+                    this._actualPaths.set(intention, [
+                        position.moveTo(possibleDirections[0]),
+                        path,
+                    ]);
+                }
+            } else {
+                possibleDirections = this._beliefs.map.getNextDirection(
+                    this._beliefs.myPosition,
+                    position,
+                )!;
+            }
+        } else {
+            possibleDirections = this._beliefs.map.getNextDirection(
+                this._beliefs.myPosition,
+                intention.position,
+            )!;
+        }
+
+        let hasMoved = false;
+        for (const direction of possibleDirections) {
+            if (await this._actuators.move(direction)) {
+                hasMoved = true;
+                break;
+            }
+        }
+
+        if (!hasMoved) {
+            const path = this._beliefs.recomputePath(this._beliefs.myPosition, intention.position);
+            this._actualPaths.set(intention, [this._beliefs.myPosition, path]);
+
+            const bottleneck = this._beliefs.computeBottleneck(
+                this._beliefs.myPosition,
+                intention.position,
+            );
+
+            this._blockedBottlenecks.push([bottleneck, intention]);
+        } else if (this._beliefs.myPosition.equals(intention.position)) {
             this._actualPaths.delete(intention);
             switch (intention.type) {
                 case IntentionType.PICKUP: {
@@ -220,59 +264,6 @@ export class Player {
                     this._moveIntention = null;
                     break;
                 }
-            }
-        } else {
-            let possibleDirections: Direction[];
-            if (this._actualPaths.has(intention)) {
-                const [position, path] = this._actualPaths.get(intention)!;
-
-                if (path === null) {
-                    return;
-                }
-
-                if (this._position.equals(position)) {
-                    possibleDirections = [path.shift()!];
-                    this._actualPaths.set(intention, [
-                        position.moveTo(possibleDirections[0]),
-                        path,
-                    ]);
-                } else {
-                    possibleDirections = this._beliefs.map.getNextDirection(
-                        this._position,
-                        position,
-                    )!;
-                }
-            } else {
-                possibleDirections = this._beliefs.map.getNextDirection(
-                    this._position,
-                    intention.position,
-                )!;
-            }
-
-            this._nextPosition = this._position.moveTo(possibleDirections[0]);
-
-            let hasMoved = false;
-            for (const direction of possibleDirections) {
-                if (await this._actuators.move(direction)) {
-                    this._position = this._position.moveTo(direction);
-                    this._planner.updatePosition(this._position);
-                    hasMoved = true;
-                    break;
-                }
-            }
-
-            this._nextPosition = null;
-
-            if (!hasMoved) {
-                const path = this._beliefs.recomputePath(this._position, intention.position);
-                this._actualPaths.set(intention, [this._position, path]);
-
-                const bottleneck = this._beliefs.computeBottleneck(
-                    this._position,
-                    intention.position,
-                );
-
-                this._blockedBottlenecks.push([bottleneck, intention]);
             }
         }
     }
@@ -414,18 +405,21 @@ export class Player {
                     continue;
                 }
 
-                distance = this._beliefs.map.distance(this._position, position) + path.length;
+                distance =
+                    this._beliefs.map.distance(this._beliefs.myPosition, position) + path.length;
             } else {
-                distance = this._beliefs.map.distance(this._position, intention.position);
+                distance = this._beliefs.map.distance(this._beliefs.myPosition, intention.position);
             }
 
             const arrivalInstant = now.add(movementDuration.multiply(distance));
             let score = utility.getValueByInstant(arrivalInstant, this._beliefs.parcelDiscounts);
 
             if (intention.type === IntentionType.PICKUP) {
+                // Reduce the score of a pickup intention if there is another agent (excluding random agents
+                // and teammates) closer to the pickup position.
                 let minEnemyDistance = Number.POSITIVE_INFINITY;
-                for (const agent of this._beliefs.getVisibleAgents()) {
-                    if (agent.random || this._beliefs.isTeamMate(agent.id)) {
+                for (const agent of this._beliefs.getAgents(false)) {
+                    if (agent.random) {
                         continue;
                     }
 
@@ -459,7 +453,6 @@ export class Player {
         const intentionToIdx = new HashMap<Intention, number>();
         const idxToIntention = new Map<number, Intention>();
 
-        const { maxLastHeard } = Config.getPlayerConfig();
         let mateIdx = 1; // 0 is reserved for the player
         let intentionIdx = 0;
         for (const [intention] of intentionUtilities) {
@@ -471,9 +464,6 @@ export class Player {
         }
 
         for (const [agentID, mate] of this._beliefs.getTeamMates()) {
-            if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
-                continue;
-            }
             if (mate.ignore) {
                 continue;
             }
@@ -553,41 +543,28 @@ export class Player {
         }
 
         const promisingPositions = this._beliefs.getPromisingPositions(
-            this._position,
+            this._beliefs.myPosition,
             Config.getPlayerConfig().numPromisingPositions,
         );
+        // If all promising positions have the same value, we shuffle them so that the player
+        // does not always choose the same position (i.e., the first one in the list).
+        shuffle_in_place(promisingPositions);
 
         let bestIntention: Intention | null = null;
         let bestReward = Number.NEGATIVE_INFINITY;
 
-        const now = Instant.now();
-        const { movementDuration } = Config.getEnvironmentConfig();
         for (const [position, value] of promisingPositions) {
             const intention = Intention.move(position);
-
-            let distanceToIntention: number;
             if (this._actualPaths.has(intention)) {
-                const [position, path] = this._actualPaths.get(intention)!;
+                const [, path] = this._actualPaths.get(Intention.move(position))!;
                 if (path === null) {
                     continue;
                 }
-
-                distanceToIntention =
-                    this._beliefs.map.distance(this._position, position) + path.length;
-            } else {
-                distanceToIntention = this._beliefs.map.distance(this._position, position);
             }
 
-            const distanceToDelivery = this._beliefs.map.distanceToDelivery(position);
-            const totalDistance = distanceToIntention + distanceToDelivery;
-
-            const arrivalInstant = now.add(movementDuration.multiply(totalDistance));
-
-            const reward = new DecayingValue(value, now).getValueByInstant(arrivalInstant);
-
-            if (reward > bestReward) {
+            if (value > bestReward) {
                 bestIntention = intention;
-                bestReward = reward;
+                bestReward = value;
             }
         }
 
@@ -602,21 +579,18 @@ export class Player {
     }
 
     private _findClosestTeamMate(): AgentID | null {
-        const now = Instant.now();
-        const { maxLastHeard } = Config.getPlayerConfig();
-
         let closestTeamMate: AgentID | null = null;
         let closestDistance = Number.POSITIVE_INFINITY;
 
         for (const [agentID, mate] of this._beliefs.getTeamMates()) {
-            if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
-                continue;
-            }
             if (mate.ignore) {
                 continue;
             }
 
-            const distance = this._beliefs.map.distanceIfPossible(this._position, mate.position);
+            const distance = this._beliefs.map.distanceIfPossible(
+                this._beliefs.myPosition,
+                mate.position,
+            );
             if (distance === null) {
                 continue;
             }
@@ -633,6 +607,14 @@ export class Player {
     private async _sendMessage(message: Message) {
         const mates = this._beliefs.getTeamMates().map(([id]) => id);
         switch (message.type) {
+            case MessageType.POSITION_UPDATE: {
+                await Promise.all(
+                    mates.map((agentID) => {
+                        return this._messenger.sendPositionUpdateMessage(agentID, message);
+                    }),
+                );
+                break;
+            }
             case MessageType.PARCEL_SENSING: {
                 await Promise.all(
                     mates.map((agentID) => {
@@ -686,12 +668,46 @@ export class Player {
         if (this._beliefs.isTeamMate(sender)) {
             this._beliefs.updateTeamMateActivity(sender);
         } else if (this._cryptographer.decrypt(message.ciphered_id) === sender.serialize()) {
-            this._beliefs.addTeamMate(sender);
+            this._beliefs.addTeamMate(sender, message.position);
         } else {
             // The sender is not who it claims to be. This could be due to an error or a malicious agent.
             // Since this is a demo, we just ignore the message, but in a real scenario we should
             // handle this case.
         }
+    }
+
+    private async _onLocalPositionUpdate(position: Position) {
+        // Since the movement is not instantaneous, as soon as the agent performs a movement, its
+        // position is in between two tiles and only at the end it will be equal to the new tile.
+        // To avoid having to deal with intermediate positions, we always set the position
+        // to the position of the new tile (in some edge cases, this may lead to some inconsistencies,
+        // that are only temporary so we can ignore them).
+
+        // Since the position is always set to the position of the new tile, we can avoid sending
+        // the same message when the agent effectively reaches the new tile.
+        if (position.equals(this._beliefs.myPosition)) {
+            return;
+        }
+
+        this._beliefs.updateMyPosition(
+            new Position(Math.round(position.row), Math.round(position.column)),
+        );
+
+        const message: PositionUpdateMessage = {
+            type: MessageType.POSITION_UPDATE,
+            position: this._beliefs.myPosition,
+        };
+
+        await this._sendMessage(message);
+    }
+
+    private async _onRemotePositionUpdate(sender: AgentID, message: PositionUpdateMessage) {
+        if (!this._beliefs.isTeamMate(sender)) {
+            // If we don't know the sender, we ignore the message since it may be a malicious agent.
+            return;
+        }
+
+        this._beliefs.updateTeamMatePosition(sender, message.position);
     }
 
     /**
@@ -700,12 +716,10 @@ export class Player {
      * @param parcels The parcels that were sensed.
      */
     private async _onLocalParcelSensing(parcels: Parcel[]) {
-        this._beliefs.updateParcels(parcels, this._position);
+        this._beliefs.updateParcels(parcels, this._beliefs.myID);
 
         const message: ParcelSensingMessage = {
             type: MessageType.PARCEL_SENSING,
-            position: this._position,
-            nextPosition: this._nextPosition,
             parcels,
         };
 
@@ -724,8 +738,7 @@ export class Player {
             return;
         }
 
-        this._beliefs.updateParcels(message.parcels, message.position);
-        this._beliefs.updateTeamMatePosition(sender, message.position, message.nextPosition);
+        this._beliefs.updateParcels(message.parcels, sender);
     }
 
     /**
@@ -733,13 +746,11 @@ export class Player {
      *
      * @param agents The agents that were sensed.
      */
-    private async _onLocalAgentSensing(agents: Agent[]) {
-        this._beliefs.updateAgents(agents, this._position, this._nextPosition, this._beliefs.myID);
+    private async _onLocalAgentSensing(agents: VisibleAgent[]) {
+        this._beliefs.updateAgents(agents, this._beliefs.myID);
 
         const message: AgentSensingMessage = {
             type: MessageType.AGENT_SENSING,
-            position: this._position,
-            nextPosition: this._nextPosition,
             agents,
         };
 
@@ -752,8 +763,7 @@ export class Player {
             return;
         }
 
-        this._beliefs.updateAgents(message.agents, message.position, message.nextPosition, sender);
-        // this._beliefs.updateTeamMatePosition(sender, message.position);
+        this._beliefs.updateAgents(message.agents, sender);
     }
 
     /**
@@ -769,6 +779,15 @@ export class Player {
         }
 
         this._beliefs.updateTeamMateIntentions(sender, message.intentions);
+    }
+
+    private _onIgnoreMe(sender: AgentID, message: IgnoreMeMessage) {
+        if (!this._beliefs.isTeamMate(sender)) {
+            // If we don't know the sender, we ignore the message since it may be a malicious agent.
+            return;
+        }
+
+        this._beliefs.updateTeamMateIgnore(sender, message.ignore);
     }
 
     private _onOccupiedPositionsChange() {
@@ -787,7 +806,7 @@ export class Player {
         const alreadyAdded: boolean[] = new Array(oldBlockedBottlenecks.length).fill(false);
 
         // console.log("------");
-        for (const agent of this._beliefs.getVisibleAgents()) {
+        for (const agent of this._beliefs.getAgents()) {
             // console.log("Visible agent: ", agent);
             for (const [idx, [bottleneck, intention]] of oldBlockedBottlenecks.entries()) {
                 if (bottleneck.has(agent.position)) {

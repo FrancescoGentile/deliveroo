@@ -18,6 +18,7 @@ import {
     ParcelID,
     Position,
     Tile,
+    VisibleAgent,
 } from "./structs";
 
 export interface TeamMate {
@@ -27,10 +28,21 @@ export interface TeamMate {
     ignore: boolean;
 }
 
+interface AgentInfo {
+    id: AgentID;
+    random: boolean;
+    firstSeen: Instant;
+}
+
 export class BeliefSet {
     public readonly map: GridMap;
 
     public readonly myID: AgentID;
+
+    private _position: Position;
+    public get myPosition(): Position {
+        return this._position;
+    }
 
     // map each position associated to the index of the position in the array
     // of position weights
@@ -40,14 +52,16 @@ export class BeliefSet {
 
     private readonly _freeParcels: HashMap<ParcelID, Parcel> = new HashMap();
 
-    private readonly _positionToParcelIDs: HashMap<Position, ParcelID[]> = new HashMap();
+    private readonly _positionToParcel: HashMap<Position, ParcelID[]> = new HashMap();
 
     private readonly _teamMates: HashMap<AgentID, TeamMate> = new HashMap();
 
-    // map each agent to the instant when it was first seen
-    private readonly _agents: HashMap<AgentID, [Agent, Instant]> = new HashMap();
+    // agents here refers to the agents that are not team mates
+    private readonly _agents: HashMap<AgentID, AgentInfo> = new HashMap();
 
-    private readonly _occupiedPositions: HashMap<Position, [AgentID, Instant]> = new HashMap();
+    private readonly _agentToPosition: HashMap<AgentID, [Position, Instant]> = new HashMap();
+
+    private readonly _positionToAgent: HashMap<Position, AgentID> = new HashMap();
 
     private readonly _broker: EventEmitter = new EventEmitter();
 
@@ -59,16 +73,21 @@ export class BeliefSet {
     // Constructor
     // ------------------------------------------------------------------------
 
-    public constructor(map: GridMap, id: AgentID) {
+    public constructor(map: GridMap, id: AgentID, position: Position) {
         this.map = map;
         this.myID = id;
+        this._position = position;
 
         for (const [idx, tile] of map.tiles.entries()) {
             this._positionToIdx.set(tile.position, idx);
         }
         this._positionWeights = _getPositionWeights(map.tiles, this._positionToIdx);
 
-        setInterval(() => this._removeDeadParcels(), 10000);
+        const { movementDuration } = Config.getEnvironmentConfig();
+
+        setInterval(() => this._removeExpiredParcels(), 10000);
+        setInterval(() => this._removeDisappearedTeamMates(), 1000);
+        setInterval(() => this._removeMovedAgents(), movementDuration.milliseconds);
     }
 
     // ------------------------------------------------------------------------
@@ -96,7 +115,7 @@ export class BeliefSet {
      * @returns The parcels that are in the given position.
      */
     public getParcelsByPosition(position: Position): Parcel[] {
-        const parcels = this._positionToParcelIDs
+        const parcels = this._positionToParcel
             .get(position)
             ?.map((id) => this._freeParcels.get(id)!);
 
@@ -109,10 +128,24 @@ export class BeliefSet {
      * @returns The positions where there are parcels.
      */
     public getParcelPositions(): Position[] {
-        return Array.from(this._positionToParcelIDs.keys());
+        return Array.from(this._positionToParcel.keys());
     }
 
-    public updateParcels(parcels: Parcel[], currentPosition: Position) {
+    /**
+     * Updates the set of free parcels and emits a "parcels-change" event.
+     *
+     * @param parcels The parcels seen by the agent.
+     * @param viewer The agent that saw the parcels (it can be a team mate or the player).
+     */
+    public updateParcels(parcels: Parcel[], viewer: AgentID) {
+        let currentPosition: Position;
+        if (viewer.equals(this.myID)) {
+            currentPosition = this._position;
+        } else {
+            const mate = this.getTeamMate(viewer);
+            currentPosition = mate.position;
+        }
+
         const visibleParcels = parcels.filter((p) =>
             this.map.isReachable(currentPosition, p.position),
         );
@@ -161,9 +194,9 @@ export class BeliefSet {
                 } else {
                     // the parcel is new
                     this._freeParcels.set(parcel.id, parcel);
-                    const parcelsInPosition = this._positionToParcelIDs.get(parcel.position);
+                    const parcelsInPosition = this._positionToParcel.get(parcel.position);
                     if (parcelsInPosition === undefined) {
-                        this._positionToParcelIDs.set(parcel.position, [parcel.id]);
+                        this._positionToParcel.set(parcel.position, [parcel.id]);
                     } else {
                         parcelsInPosition.push(parcel.id);
                     }
@@ -212,162 +245,181 @@ export class BeliefSet {
     // Agent management
     // ------------------------------------------------------------------------
 
-    public getOccupiedPositions(): Position[] {
-        return Array.from(this._occupiedPositions.keys()).filter(
-            (p) => !this._occupiedPositions.get(p)![0].equals(this.myID),
-        );
+    /**
+     * Updates the position of the player and emits a "my-position-change" event.
+     *
+     * @param position The new position of the agent.
+     */
+    public updateMyPosition(position: Position) {
+        this._position = position;
+        this._broker.emit("my-position-change", position);
     }
 
-    public getVisibleAgents(): Agent[] {
-        return this.getOccupiedPositions().map((p) => {
-            const [agentID] = this._occupiedPositions.get(p)!;
-            return this._agents.get(agentID)![0];
-        });
-    }
-
-    public isPositionOccupied(position: Position): boolean {
-        if (!this._occupiedPositions.has(position)) {
-            return false;
+    /**
+     * Returns the positions that are currently occupied by agents.
+     *
+     * @param include_teammates Whether to include the positions of the team mates.
+     * @param include_myself Whether to include the position of the player.
+     */
+    public getOccupiedPositions(include_teammates = true, include_myself = false): Position[] {
+        const positions = [];
+        for (const [pos] of this._positionToAgent.entries()) {
+            positions.push(pos);
         }
 
-        const [agentID] = this._occupiedPositions.get(position)!;
-        return !agentID.equals(this.myID);
+        if (include_teammates) {
+            for (const { position } of this._teamMates.values()) {
+                positions.push(position);
+            }
+        }
+
+        if (include_myself) {
+            positions.push(this._position);
+        }
+
+        return positions;
     }
 
-    public updateAgents(
-        agents: Agent[],
-        currentPosition: Position,
-        nextPosition: Position | null,
-        viewer: AgentID,
-    ) {
-        const now = Instant.now();
-        const {
-            maxParcels,
-            movementDuration,
-            randomAgentMovementDuration,
-            numRandomAgents,
-            parcelRewardMean,
-            agentRadius,
-        } = Config.getEnvironmentConfig();
+    /**
+     * Returns the agents occupying the positions in the environment.
+     *
+     * @param include_teammates Whether to include the team mates.
+     * @param include_myself Whether to include the player.
+     */
+    public getAgents(include_teammates = true, include_myself = false): Agent[] {
+        const agents = [];
+        for (const [id, [position]] of this._agentToPosition.entries()) {
+            const agent = this._agents.get(id)!;
+            agents.push(new Agent(id, position, agent.random));
+        }
 
-        const visibleAgents = agents.filter((a) =>
-            this.map.isReachable(currentPosition, a.position),
-        );
+        if (include_teammates) {
+            for (const [id, { position }] of this._teamMates.entries()) {
+                agents.push(new Agent(id, position, false));
+            }
+        }
+
+        if (include_myself) {
+            agents.push(new Agent(this.myID, this._position, false));
+        }
+
+        return agents;
+    }
+
+    /**
+     * Returns whether the given position is occupied by an agent.
+     * If the position corresponds to the position of a team mate, then
+     * it is considered occupied. If the position is occupied by the agent
+     * itself, then it is not considered occupied.
+     */
+    public isPositionOccupied(position: Position): boolean {
+        if (this._positionToAgent.has(position)) {
+            return true;
+        }
+
+        for (const { position: pos } of this._teamMates.values()) {
+            if (pos.equals(position)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Updates the set of occupied positions and emits an "occupied-positions-change" event.
+     *
+     * @param agents The agents seen by the agent.
+     * @param viewer The agent that saw the agents (it can be a team mate or the player).
+     */
+    public updateAgents(agents: VisibleAgent[], viewer: AgentID) {
+        const now = Instant.now();
+        const { maxParcels, movementDuration, parcelRewardMean, agentRadius } =
+            Config.getEnvironmentConfig();
+
+        let currentPosition: Position;
+        if (viewer.equals(this.myID)) {
+            currentPosition = this._position;
+        } else {
+            const mate = this.getTeamMate(viewer);
+            currentPosition = mate.position;
+        }
+
+        // Do not consider the visible agents who are team mates (including the player itself)
+        // or who can never interact with the player.
+        const visibleAgents = agents.filter((a) => {
+            if (a.id.equals(this.myID) || this._teamMates.has(a.id)) {
+                return false;
+            }
+
+            return this.map.isReachable(currentPosition, a.position);
+        });
 
         const visibleOccupiedPositions = new HashMap<Position, AgentID>();
         for (const agent of visibleAgents) {
             visibleOccupiedPositions.set(agent.position, agent.id);
         }
 
-        // console.log("AAAAAAAAAAAAAAAA");
-        // console.log("Current position:", currentPosition);
-        // console.log("Visible agents:");
-        // for (const agent of visibleAgents) {
-        //     console.log(agent);
-        // }
-
-        // console.log("Previously occupied positions in updateAgents:");
-        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
-        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
-        // }
-
-        let [truePosition, changed] = this._setActualPosition(
-            currentPosition,
-            nextPosition,
-            viewer,
-            now,
-        );
-
-        // console.log("Occupied positions in updateAgents after setUpActions:");
-        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
-        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
-        // }
-
-        for (const [position, [agentID, instant]] of this._occupiedPositions.entries()) {
+        let changed = false;
+        for (const [oldAgentID, [position, lastSeen]] of this._agentToPosition.entries()) {
             if (visibleOccupiedPositions.has(position)) {
-                // the position is occupied by an agent
-                this._occupiedPositions.set(position, [
-                    visibleOccupiedPositions.get(position)!,
-                    now,
-                ]);
-            } else if (position.equals(truePosition)) {
-                // do nothing because the position is already updated inside _setActualPosition
-            } else {
-                // the position may be free depending on whether I can see it or not
-                const distance = currentPosition.manhattanDistance(position);
-                if (distance <= agentRadius) {
-                    // I can see the position and it is free
-                    this._occupiedPositions.delete(position);
-                    changed = true;
-                } else {
-                    // I cannot see the position, so I check whether it has passed enough time
-                    // since an agent was last seen in that position
-                    const [agent] = this._agents.get(agentID)!;
-                    const timePassed = now.subtract(instant);
-                    let maxTimeToPass: Duration;
-                    if (agent.random) {
-                        maxTimeToPass = randomAgentMovementDuration;
-                    } else {
-                        maxTimeToPass = movementDuration;
-                    }
+                // The position is still occupied by an agent
+                const newAgentID = visibleOccupiedPositions.get(position)!;
+                this._positionToAgent.set(position, newAgentID);
+                this._agentToPosition.set(newAgentID, [position, now]);
 
-                    if (timePassed.milliseconds > maxTimeToPass.milliseconds) {
-                        this._occupiedPositions.delete(position);
-                        changed = true;
-                    }
-                }
+                continue;
+            }
+
+            const distance = currentPosition.manhattanDistance(position);
+            if (distance <= agentRadius) {
+                // The viewer can see the position and it is not occupied by an agent
+                this._positionToAgent.delete(position);
+                this._agentToPosition.delete(oldAgentID);
+                changed = true;
+            } else if (position.equals(currentPosition)) {
+                // The position is the same as the current position of the viewer,
+                // so it cannot be occupied by an agent.
+                this._positionToAgent.delete(position);
+                this._agentToPosition.delete(oldAgentID);
+            } else if (this._hasProbablyMoved(oldAgentID, lastSeen, now)) {
+                // The viewer cannot see the position, so we assume it is free if enough time has passed
+                // since an agent was last seen in that position.
+                this._positionToAgent.delete(position);
+                this._agentToPosition.delete(oldAgentID);
+                changed = true;
             }
         }
 
         const avgParcelsDistance = this.map.tiles.length / maxParcels;
         for (const agent of visibleAgents) {
-            if (!this._occupiedPositions.has(agent.position)) {
-                this._occupiedPositions.set(agent.position, [agent.id, now]);
+            if (!this._positionToAgent.has(agent.position)) {
+                this._positionToAgent.set(agent.position, agent.id);
+                this._agentToPosition.set(agent.id, [agent.position, now]);
                 changed = true;
             }
 
             if (this._agents.has(agent.id)) {
-                let random = false;
-                const [, firstSeenAgent] = this._agents.get(agent.id)!;
+                // We previously knew about the agent, so we check if it is a random agent.
+                const info = this._agents.get(agent.id)!;
+                const visitedTiles =
+                    now.subtract(info.firstSeen).milliseconds / movementDuration.milliseconds;
+                const numSmartAgents = this._teamMates.size + 1;
+                const avgScore =
+                    ((visitedTiles / avgParcelsDistance) * parcelRewardMean) / numSmartAgents;
 
-                // if the agent is not a team mate, then we check if it is a random agent
-                // if it is a teammate, we know it is not random
-                if (!this._teamMates.has(agent.id)) {
-                    const visitedTiles =
-                        now.subtract(firstSeenAgent).milliseconds / movementDuration.milliseconds;
-                    const numSmartAgents = this._teamMates.size + 1;
-
-                    const avgScore =
-                        ((visitedTiles / avgParcelsDistance) * parcelRewardMean) / numSmartAgents;
-
-                    if (numRandomAgents > 0) {
-                        random = avgScore > agent.score;
-                    }
-                }
-
-                const updatedAgent = new Agent(agent.id, agent.position, agent.score, random);
-                this._agents.set(agent.id, [updatedAgent, firstSeenAgent]);
+                info.random = avgScore > agent.score;
             } else {
-                const newAgent = new Agent(agent.id, agent.position, agent.score, false);
-                this._agents.set(agent.id, [newAgent, now]);
+                // We did not know about the agent, so we add it to the set of agents.
+                // For now, we assume that the agent is not random.
+                const info: AgentInfo = {
+                    id: agent.id,
+                    random: false,
+                    firstSeen: now,
+                };
+                this._agents.set(agent.id, info);
             }
         }
-
-        if (!viewer.equals(this.myID)) {
-            // update the position of the viewer who is a team mate
-            const [oldAgent, firstSeen] = this._agents.get(viewer)!;
-            const newAgent = new Agent(viewer, truePosition, oldAgent.score, false);
-            this._agents.set(viewer, [newAgent, firstSeen]);
-
-            const mate = this._teamMates.get(viewer)!;
-            mate.position = truePosition;
-        }
-
-        // console.log("Occupied positions in updateAgents:");
-        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
-        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
-        // }
-        // console.log("AAAAAAAAAAAAAAAA");
 
         if (changed) {
             this._broker.emit("occupied-positions-change");
@@ -378,10 +430,24 @@ export class BeliefSet {
     // Team management
     // ------------------------------------------------------------------------
 
+    /**
+     * Returns whether the given agent is a team mate.
+     *
+     * @param agentID The ID of the agent.
+     */
     public isTeamMate(agentID: AgentID): boolean {
         return this._teamMates.has(agentID);
     }
 
+    /**
+     * Returns the team mate with the given ID.
+     *
+     * @param agentID The ID of the agent.
+     *
+     * @returns The team mate with the given ID.
+     *
+     * @throws {TeamMateNotFoundError} If the agent is not a team mate.
+     */
     public getTeamMate(agentID: AgentID): TeamMate {
         const teamMate = this._teamMates.get(agentID);
         if (teamMate === undefined) {
@@ -391,101 +457,105 @@ export class BeliefSet {
         return teamMate;
     }
 
+    /**
+     * Returns the team mates of the agent.
+     */
     public getTeamMates(): [AgentID, TeamMate][] {
         return [...this._teamMates.entries()];
     }
 
-    public addTeamMate(agentID: AgentID) {
+    public addTeamMate(agentID: AgentID, position: Position) {
         if (this._teamMates.has(agentID)) {
             throw new Error("Agent already in the team.");
         }
 
-        const position = new Position(0, 0); // Here we can use any position since it will be updated later.
-        const now = Instant.now();
-        this._agents.set(agentID, [new Agent(agentID, position, 0, false), now]);
-
         this._teamMates.set(agentID, {
-            position: position,
-            lastHeard: now,
+            position,
+            lastHeard: Instant.now(),
             intentions: [],
             ignore: false,
         });
-    }
 
-    public removeTeamMate(agentID: AgentID) {
-        if (!this._teamMates.has(agentID)) {
-            throw new TeamMateNotFoundError();
-        }
+        let changed: boolean;
+        if (this._agents.has(agentID)) {
+            // We previously knew about the agent but it was not a team mate.
+            this._agents.delete(agentID);
 
-        this._teamMates.delete(agentID);
-    }
-
-    public updateTeamMateActivity(agentID: AgentID) {
-        const teamMate = this._teamMates.get(agentID);
-        if (teamMate === undefined) {
-            throw new TeamMateNotFoundError();
-        }
-
-        teamMate.lastHeard = Instant.now();
-    }
-
-    public updateTeamMatePosition(
-        agentID: AgentID,
-        position: Position,
-        nextPosition: Position | null,
-    ) {
-        const teamMate = this._teamMates.get(agentID);
-        if (teamMate === undefined) {
-            throw new TeamMateNotFoundError();
-        }
-
-        const now = Instant.now();
-        let [truePosition, changed] = this._setActualPosition(position, nextPosition, agentID, now);
-
-        // search if the agent was occupying another position
-        // if so, remove it
-        for (const [pos, [id]] of this._occupiedPositions.entries()) {
-            if (pos.equals(truePosition)) {
-                continue;
-            }
-
-            if (id.equals(agentID)) {
-                this._occupiedPositions.delete(pos);
+            if (this._agentToPosition.has(agentID)) {
+                const [pos] = this._agentToPosition.get(agentID)!;
+                this._agentToPosition.delete(agentID);
+                this._positionToAgent.delete(pos);
+                // The set of occupied positions is changed only if the team mate is in a different position
+                // than the agent was.
+                changed = !pos.equals(position);
+            } else {
+                // We did not know the position of the agent, but now we do.
                 changed = true;
             }
+        } else if (this._positionToAgent.has(position)) {
+            // The position was occupied by an agent, but now it is occupied by a team mate,
+            // so we need to remove the agent from the position. The set of occupied positions
+            // however is not changed because the position is still occupied.
+            const id = this._positionToAgent.get(position)!;
+            this._positionToAgent.delete(position);
+            this._agentToPosition.delete(id);
+            changed = false;
+        } else {
+            // the position was free, but now it is occupied by a team mate
+            changed = true;
         }
-
-        const [agent, firstSeenAgent] = this._agents.get(agentID)!;
-        const updatedAgent = new Agent(agentID, truePosition, agent.score, agent.random);
-        this._agents.set(agentID, [updatedAgent, firstSeenAgent]);
-
-        teamMate.lastHeard = now;
-        teamMate.position = truePosition;
-
-        // console.log("~~~~~~~~~~~~~~~");
-        // console.log("Occupied positions in updateTeamMatePosition:");
-        // for (const [pos, [id]] of this._occupiedPositions.entries()) {
-        //     console.log(`(${pos.row}, ${pos.column}) -> ${id.toString()}`);
-        // }
-        // console.log("~~~~~~~~~~~~~~~");
 
         if (changed) {
             this._broker.emit("occupied-positions-change");
         }
     }
 
-    public updateTeamMateIntentions(agentID: AgentID, intentions: [Intention, number][]) {
-        const teamMate = this._teamMates.get(agentID);
-        if (teamMate === undefined) {
+    public removeTeamMate(mateID: AgentID) {
+        if (!this._teamMates.has(mateID)) {
             throw new TeamMateNotFoundError();
         }
 
+        this._teamMates.delete(mateID);
+    }
+
+    public updateTeamMateActivity(mateID: AgentID) {
+        const teamMate = this.getTeamMate(mateID);
+        teamMate.lastHeard = Instant.now();
+    }
+
+    public updateTeamMatePosition(mateID: AgentID, position: Position) {
+        const teamMate = this.getTeamMate(mateID);
+        teamMate.lastHeard = Instant.now();
+
+        const oldPosition = teamMate.position;
+        teamMate.position = position;
+
+        let changed: boolean;
+        if (oldPosition.equals(position)) {
+            changed = false;
+        } else if (this._positionToAgent.has(position)) {
+            const id = this._positionToAgent.get(position)!;
+            this._positionToAgent.delete(position);
+            this._agentToPosition.delete(id);
+            // The set of occupied position is not changed because the position is still occupied.
+            changed = false;
+        } else {
+            changed = true;
+        }
+
+        if (changed) {
+            this._broker.emit("occupied-positions-change");
+        }
+    }
+
+    public updateTeamMateIntentions(mateID: AgentID, intentions: [Intention, number][]) {
+        const teamMate = this.getTeamMate(mateID);
         teamMate.intentions = intentions;
         teamMate.lastHeard = Instant.now();
     }
 
-    public updateTeamMateIgnore(agentID: AgentID, ignore: boolean) {
-        const teamMate = this._teamMates.get(agentID);
+    public updateTeamMateIgnore(mateID: AgentID, ignore: boolean) {
+        const teamMate = this._teamMates.get(mateID);
         if (teamMate === undefined) {
             throw new TeamMateNotFoundError();
         }
@@ -510,7 +580,7 @@ export class BeliefSet {
      */
     public getPromisingPositions(currentPosition: Position, k: number): [Position, number][] {
         const weights = [...this._positionWeights];
-        const agentsPositions = [...this._occupiedPositions.keys(), currentPosition];
+        const agentsPositions = this.getOccupiedPositions(true, true);
 
         const { agentRadius, parcelRewardMean } = Config.getEnvironmentConfig();
         const { gaussianStd } = Config.getPlayerConfig();
@@ -547,7 +617,15 @@ export class BeliefSet {
             return 0;
         });
         const [values, indexes] = kmax(reachableWeights, k);
-        return values.map((v, i) => [this.map.tiles[indexes[i]].position, v * parcelRewardMean]);
+        return values
+            .map(
+                (v, i) =>
+                    [this.map.tiles[indexes[i]].position, v * parcelRewardMean] as [
+                        Position,
+                        number,
+                    ],
+            )
+            .filter((v) => v[1] > 0);
     }
 
     /**
@@ -667,6 +745,15 @@ export class BeliefSet {
     // ------------------------------------------------------------------------
 
     /**
+     * Registers a callback that is called when the position of the agent changes.
+     *
+     * @param callback The callback to register.
+     */
+    public onMyPositionChange(callback: (position: Position) => void) {
+        this._broker.on("my-position-change", callback);
+    }
+
+    /**
      * Registers a callback that is called when the set of free parcels changes.
      *
      * @param callback The callback to register.
@@ -681,10 +768,20 @@ export class BeliefSet {
         this._broker.on("parcels-change", callback);
     }
 
+    /**
+     * Registers a callback that is called when new parcels expire.
+     *
+     * @param callback The callback to register.
+     */
     public onExpiredParcels(callback: (parcels: [ParcelID, Position, DecayingValue][]) => void) {
         this._broker.on("expired-parcels", callback);
     }
 
+    /**
+     * Registers a callback that is called when the set of occupied positions changes.
+     *
+     * @param callback The callback to register.
+     */
     public onOccupiedPositionsChange(callback: () => void) {
         this._broker.on("occupied-positions-change", callback);
     }
@@ -693,7 +790,7 @@ export class BeliefSet {
     // Private methods
     // ------------------------------------------------------------------------
 
-    private _removeDeadParcels() {
+    private _removeExpiredParcels() {
         for (const id of this._ignoredParcels.values()) {
             this._ignoredParcels.delete(id);
         }
@@ -717,7 +814,7 @@ export class BeliefSet {
             throw new Error("Parcel not found.");
         }
 
-        const parcelsInPosition = this._positionToParcelIDs.get(parcel.position);
+        const parcelsInPosition = this._positionToParcel.get(parcel.position);
         if (parcelsInPosition === undefined) {
             throw new Error("Parcel not found in position.");
         }
@@ -730,7 +827,7 @@ export class BeliefSet {
         parcelsInPosition.splice(idx, 1);
 
         if (parcelsInPosition.length === 0) {
-            this._positionToParcelIDs.delete(parcel.position);
+            this._positionToParcel.delete(parcel.position);
         }
 
         this._freeParcels.delete(id);
@@ -749,7 +846,7 @@ export class BeliefSet {
 
         this._freeParcels.set(id, new Parcel(id, parcel.value, newPosition, parcel.agentID));
 
-        const parcelsInOldPosition = this._positionToParcelIDs.get(oldPosition);
+        const parcelsInOldPosition = this._positionToParcel.get(oldPosition);
         if (parcelsInOldPosition === undefined) {
             throw new Error("Parcel not found in position.");
         }
@@ -759,70 +856,56 @@ export class BeliefSet {
         }
         parcelsInOldPosition.splice(idx, 1);
 
-        const parcelsInNewPosition = this._positionToParcelIDs.get(newPosition);
+        const parcelsInNewPosition = this._positionToParcel.get(newPosition);
         if (parcelsInNewPosition === undefined) {
-            this._positionToParcelIDs.set(newPosition, [id]);
+            this._positionToParcel.set(newPosition, [id]);
         } else {
             parcelsInNewPosition.push(id);
         }
     }
 
-    private _setActualPosition(
-        position: Position,
-        nextPosition: Position | null,
-        agentID: AgentID,
-        now: Instant,
-    ): [Position, boolean] {
+    private _removeDisappearedTeamMates() {
+        const now = Instant.now();
+        const { maxLastHeard } = Config.getPlayerConfig();
+
+        for (const [id, mate] of this._teamMates.entries()) {
+            if (now.subtract(mate.lastHeard).milliseconds > maxLastHeard.milliseconds) {
+                this._teamMates.delete(id);
+            }
+        }
+    }
+
+    private _removeMovedAgents() {
+        const now = Instant.now();
+
         let changed = false;
-        let truePosition: Position;
-        if (nextPosition !== null) {
-            if (!this._occupiedPositions.has(nextPosition)) {
-                // the agent is moving to the next position which is free, so I assume the agent
-                // will be able to move to the next position
-                truePosition = nextPosition;
-                this._occupiedPositions.set(nextPosition, [agentID, now]);
-
-                if (this._occupiedPositions.has(position)) {
-                    // so the agent will no longer be in the current position
-                    this._occupiedPositions.delete(position);
-                }
-
-                changed = !agentID.equals(this.myID);
-            } else {
-                const [oldAgentID] = this._occupiedPositions.get(nextPosition)!;
-                if (oldAgentID.equals(agentID)) {
-                    // the agent is moving to the next position, but I have already seen it in this position
-                    // so I do not need to update the occupied positions
-                    truePosition = nextPosition;
-                } else {
-                    // the position to which the agent is moving is occupied by another agent
-                    // so I assume the movement will fail and the agent will remain in the current position
-                    this._occupiedPositions.set(position, [agentID, now]);
-                    truePosition = position;
-                }
+        for (const [id, [position, lastSeen]] of this._agentToPosition.entries()) {
+            if (this._hasProbablyMoved(id, lastSeen, now)) {
+                this._agentToPosition.delete(id);
+                this._positionToAgent.delete(position);
+                changed = true;
             }
-        } else if (this._occupiedPositions.has(position)) {
-            // the agent is not moving and it is occupying a position which was already previously occupied
-            if (agentID.equals(this.myID)) {
-                const [oldAgentID] = this._occupiedPositions.get(position)!;
-                if (!oldAgentID.equals(agentID)) {
-                    // the agent is me and I was not occupying the position before
-                    // so the occupied positions change
-                    changed = true;
-                }
-            }
-
-            this._occupiedPositions.set(position, [agentID, now]);
-            truePosition = position;
-        } else {
-            // the agent is not moving and it is occupying a position which was not previously occupied
-            // so the occupied positions change
-            this._occupiedPositions.set(position, [agentID, now]);
-            truePosition = position;
-            changed = !agentID.equals(this.myID);
         }
 
-        return [truePosition, changed];
+        if (changed) {
+            this._broker.emit("occupied-positions-change");
+        }
+    }
+
+    private _hasProbablyMoved(agentID: AgentID, lastSeen: Instant, now: Instant): boolean {
+        const { movementDuration, randomAgentMovementDuration } = Config.getEnvironmentConfig();
+
+        const agent = this._agents.get(agentID)!;
+
+        const timePassed = now.subtract(lastSeen);
+        let maxTimeToPass: Duration;
+        if (agent.random) {
+            maxTimeToPass = randomAgentMovementDuration;
+        } else {
+            maxTimeToPass = movementDuration;
+        }
+
+        return timePassed.milliseconds > maxTimeToPass.milliseconds;
     }
 }
 

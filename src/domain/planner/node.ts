@@ -305,7 +305,7 @@ export class Node {
                     // append the grandchildren to the current node. For the moment, we simply remove the
                     // intention and its subtree.
                     if (this.children.length > i) {
-                        totalVisitDiff -= this.children[i].visits;
+                        totalVisitDiff -= this.children[i].visits - 1;
                         this.children.splice(i, 1);
                     }
 
@@ -323,13 +323,9 @@ export class Node {
         }
 
         this._visits += totalVisitDiff;
-        if (this._visits < 0) {
+        if (this._visits <= 0) {
             // just to be sure
-            throw new Error("The visits of a node cannot be negative.");
-        }
-
-        if (this._visits === 0) {
-            this._visits = 1;
+            throw new Error("The visits of a node cannot be non positive.");
         }
 
         return totalVisitDiff;

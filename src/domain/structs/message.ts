@@ -3,7 +3,7 @@
 //
 
 import { UnknownMessageError } from "../errors";
-import { Agent, AgentID } from "./agent";
+import { Agent, AgentID, VisibleAgent } from "./agent";
 import { Intention } from "./intentions";
 import { Position } from "./map";
 import { Parcel, ParcelID } from "./parcel";
@@ -11,6 +11,7 @@ import { AgentState } from "./state";
 
 export enum MessageType {
     HELLO = "hello",
+    POSITION_UPDATE = "position_update",
     PARCEL_SENSING = "parcel_sensing",
     AGENT_SENSING = "agent_sensing",
     INTENTION_UPDATE = "intention_update",
@@ -19,6 +20,7 @@ export enum MessageType {
 
 export type Message =
     | HelloMessage
+    | PositionUpdateMessage
     | ParcelSensingMessage
     | AgentSensingMessage
     | IntentionUpdateMessage
@@ -31,6 +33,15 @@ export type Message =
 export interface HelloMessage {
     type: MessageType.HELLO;
     ciphered_id: string;
+    position: Position;
+}
+
+/**
+ * Message sent by an agent to all agents in its team when it updates its position.
+ */
+export interface PositionUpdateMessage {
+    type: MessageType.POSITION_UPDATE;
+    position: Position;
 }
 
 /**
@@ -39,8 +50,6 @@ export interface HelloMessage {
  */
 export interface ParcelSensingMessage {
     type: MessageType.PARCEL_SENSING;
-    position: Position;
-    nextPosition: Position | null;
     parcels: Parcel[];
 }
 
@@ -50,9 +59,7 @@ export interface ParcelSensingMessage {
  */
 export interface AgentSensingMessage {
     type: MessageType.AGENT_SENSING;
-    position: Position;
-    nextPosition: Position | null;
-    agents: Agent[];
+    agents: VisibleAgent[];
 }
 
 /**
@@ -82,21 +89,24 @@ export function serializeMessage(message: Message): string {
             return JSON.stringify({
                 type: message.type,
                 ciphered_id: message.ciphered_id,
+                position: message.position.serialize(),
+            });
+        }
+        case MessageType.POSITION_UPDATE: {
+            return JSON.stringify({
+                type: message.type,
+                position: message.position.serialize(),
             });
         }
         case MessageType.PARCEL_SENSING: {
             return JSON.stringify({
                 type: message.type,
-                position: message.position.serialize(),
-                nextPosition: message.nextPosition?.serialize() ?? null,
                 parcels: message.parcels.map((parcel) => parcel.serialize()),
             });
         }
         case MessageType.AGENT_SENSING: {
             return JSON.stringify({
                 type: message.type,
-                position: message.position.serialize(),
-                nextPosition: message.nextPosition?.serialize() ?? null,
                 agents: message.agents.map((agent) => agent.serialize()),
             });
         }
@@ -133,26 +143,25 @@ export function deserializeMessage(message: string): Message {
             return {
                 type: MessageType.HELLO,
                 ciphered_id: parsedMessage.ciphered_id,
+                position: Position.deserialize(parsedMessage.position),
+            };
+        }
+        case MessageType.POSITION_UPDATE: {
+            return {
+                type: MessageType.POSITION_UPDATE,
+                position: Position.deserialize(parsedMessage.position),
             };
         }
         case MessageType.PARCEL_SENSING: {
             return {
                 type: MessageType.PARCEL_SENSING,
-                position: Position.deserialize(parsedMessage.position),
-                nextPosition: parsedMessage.nextPosition
-                    ? Position.deserialize(parsedMessage.nextPosition)
-                    : null,
                 parcels: parsedMessage.parcels.map((parcel: any) => Parcel.deserialize(parcel)),
             };
         }
         case MessageType.AGENT_SENSING: {
             return {
                 type: MessageType.AGENT_SENSING,
-                position: Position.deserialize(parsedMessage.position),
-                nextPosition: parsedMessage.nextPosition
-                    ? Position.deserialize(parsedMessage.nextPosition)
-                    : null,
-                agents: parsedMessage.agents.map((agent: any) => Agent.deserialize(agent)),
+                agents: parsedMessage.agents.map((agent: any) => VisibleAgent.deserialize(agent)),
             };
         }
         case MessageType.INTENTION_UPDATE: {

@@ -21,7 +21,9 @@ import {
     ParcelID,
     ParcelSensingMessage,
     Position,
+    PositionUpdateMessage,
     Tile,
+    VisibleAgent,
     deserializeMessage,
     serializeMessage,
 } from "src/domain/structs";
@@ -122,20 +124,17 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         });
     }
 
-    public onAgentSensing(callback: (agents: Agent[]) => void): void {
+    public onAgentSensing(callback: (agents: VisibleAgent[]) => void): void {
         this._socket.on("agents sensing", (agents) => {
-            const newAgents: Agent[] = [];
+            const newAgents: VisibleAgent[] = [];
             for (const agent of agents) {
-                if (Number.isInteger(agent.x) && Number.isInteger(agent.y)) {
-                    newAgents.push(
-                        new Agent(
-                            new AgentID(agent.id),
-                            new Position(agent.x, agent.y),
-                            agent.score,
-                            false,
-                        ),
-                    );
-                }
+                newAgents.push(
+                    new VisibleAgent(
+                        new AgentID(agent.id),
+                        new Position(agent.x, agent.y),
+                        agent.score,
+                    ),
+                );
             }
 
             if (newAgents.length > 0) {
@@ -200,6 +199,17 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
         });
     }
 
+    public async sendPositionUpdateMessage(
+        id: AgentID,
+        message: PositionUpdateMessage,
+    ): Promise<void> {
+        return new Promise((resolve, _reject) => {
+            this._socket.emit("say", id.serialize(), serializeMessage(message), () => {
+                resolve();
+            });
+        });
+    }
+
     public async sendParcelSensingMessage(
         id: AgentID,
         message: ParcelSensingMessage,
@@ -255,6 +265,26 @@ export class SocketIOClient implements Actuators, Sensors, Messenger {
 
                 if (!(error instanceof UnknownMessageError)) {
                     // If this happens, there is a bug in the code.
+                    throw error;
+                }
+            }
+        });
+    }
+
+    public onPositionUpdateMessage(
+        callback: (sender: AgentID, message: PositionUpdateMessage) => void,
+    ): void {
+        this._socket.on("msg", (id, _name, msg, reply) => {
+            try {
+                const message = deserializeMessage(msg);
+                if (message.type === MessageType.POSITION_UPDATE) {
+                    callback(new AgentID(id), message);
+                    if (reply) {
+                        reply();
+                    }
+                }
+            } catch (error) {
+                if (!(error instanceof UnknownMessageError)) {
                     throw error;
                 }
             }

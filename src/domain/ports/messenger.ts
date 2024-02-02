@@ -9,6 +9,7 @@ import {
     IgnoreMeMessage,
     IntentionUpdateMessage,
     ParcelSensingMessage,
+    PositionUpdateMessage,
 } from "src/domain/structs";
 
 export interface Messenger {
@@ -18,6 +19,14 @@ export interface Messenger {
      * @param message
      */
     shoutHelloMessage(message: HelloMessage): Promise<void>;
+
+    /**
+     * Sends a position update message to the agent with the given ID.
+     *
+     * @param id The ID of the agent to send the message to.
+     * @param message The message to send.
+     */
+    sendPositionUpdateMessage(id: AgentID, message: PositionUpdateMessage): Promise<void>;
 
     /**
      * Sends a parcel sensing message to the agent with the given ID.
@@ -57,6 +66,15 @@ export interface Messenger {
      * @param callback The callback to register.
      */
     onHelloMessage(callback: (sender: AgentID, message: HelloMessage) => void): void;
+
+    /**
+     * Registers a callback to be called when a position update message is received.
+     *
+     * @param callback The callback to register.
+     */
+    onPositionUpdateMessage(
+        callback: (sender: AgentID, message: PositionUpdateMessage) => void,
+    ): void;
 
     /**
      * Registers a callback to be called when a parcel sensing message is received.

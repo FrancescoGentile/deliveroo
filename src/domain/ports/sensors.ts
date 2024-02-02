@@ -2,7 +2,7 @@
 //
 //
 
-import { Agent, Parcel, Position } from "src/domain/structs";
+import { Agent, Parcel, Position, VisibleAgent } from "src/domain/structs";
 
 export interface Sensors {
     /**
@@ -21,5 +21,5 @@ export interface Sensors {
      * Event that is triggered when at least one agent is sensed.
      * @param callback The callback to call when agents are sensed.
      */
-    onAgentSensing(callback: (agents: Agent[]) => void): void;
+    onAgentSensing(callback: (agents: VisibleAgent[]) => void): void;
 }
