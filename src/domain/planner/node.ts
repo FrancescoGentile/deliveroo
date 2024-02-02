@@ -241,6 +241,14 @@ export class Node {
         this.utility = this._computeUtility();
     }
 
+    /**
+     * Removes the parcels that are no longer free from the set of parcels that the agent can pickup.
+     *
+     * @param parcelPositions The positions of the parcels that are no longer free.
+     * @param noLongerCarried The parcels that are no longer carried by the agent.
+     *
+     * @returns The difference in visits of this node.
+     */
     public removeParcels(
         parcelPositions: HashMap<Position, [ParcelID, DecayingValue][]>,
         noLongerCarried?: HashSet<ParcelID>,
@@ -268,33 +276,43 @@ export class Node {
         }
 
         let totalVisitDiff = 0;
-        for (const child of this.children) {
-            totalVisitDiff += child.removeParcels(parcelPositions, removeParcels);
-        }
-
         for (let i = 0; i < this.nextIntentions.length; i += 1) {
             const intention = this.nextIntentions[i];
             if (!parcelPositions.has(intention.position)) {
-                continue;
-            }
+                // The intention is not a pickup intention for a position where some parcels have
+                // been removed, so I do not have to remove it.
+                // However, if the intention has already been expanded, the subtree rooted in the
+                // child may contain some picked parcels that have been removed, so I have to
+                // remove them.
+                if (this.children.length > i) {
+                    const child = this.children[i];
+                    totalVisitDiff += child.removeParcels(parcelPositions, removeParcels);
+                }
+            } else {
+                // The next intention is a pickup intention for a position where some parcels have been
+                // removed.
+                const remainingParcels = this.beliefs.getParcelsByPosition(intention.position);
+                if (remainingParcels.length > 0) {
+                    // In this position there are still parcels, so we can simply remove from the expanded
+                    // subtree (if it exists) the parcels that have been removed.
+                    if (this.children.length > i) {
+                        const child = this.children[i];
+                        totalVisitDiff += child.removeParcels(parcelPositions, removeParcels);
+                    }
+                } else {
+                    // In this position there are no more parcels, so we can remove the intention and
+                    // its subtree (if it exists). A better approach would be to only remove the child and
+                    // append the grandchildren to the current node. For the moment, we simply remove the
+                    // intention and its subtree.
+                    if (this.children.length > i) {
+                        totalVisitDiff -= this.children[i].visits;
+                        this.children.splice(i, 1);
+                    }
 
-            // The next intention is a pickup intention for a position where some parcels have been
-            // removed. If in that position there are no more parcels, we can remove the intention.
-            const parcels = this.beliefs.getParcelsByPosition(intention.position);
-            if (parcels.length > 0) {
-                continue;
+                    this.nextIntentions.splice(i, 1);
+                    i -= 1; // we have removed an element, so we have to go back one position
+                }
             }
-
-            // Before removing the intention, we have to check if we have already expanded it.
-            // If we have already expanded it, we have to remove the child and add its visits
-            // to the total visits diff.
-            if (this.children.length > i) {
-                totalVisitDiff -= this.children[i].visits;
-                this.children.splice(i, 1);
-            }
-
-            this.nextIntentions.splice(i, 1);
-            i -= 1; // we have removed an element, so we have to go back one position
         }
 
         this.utility = this._computeUtility();
@@ -305,6 +323,11 @@ export class Node {
         }
 
         this._visits += totalVisitDiff;
+        if (this._visits < 0) {
+            // just to be sure
+            throw new Error("The visits of a node cannot be negative.");
+        }
+
         if (this._visits === 0) {
             this._visits = 1;
         }
