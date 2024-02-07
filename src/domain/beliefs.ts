@@ -81,7 +81,7 @@ export class BeliefSet {
         for (const [idx, tile] of map.tiles.entries()) {
             this._positionToIdx.set(tile.position, idx);
         }
-        this._positionWeights = _getPositionWeights(map.tiles, this._positionToIdx);
+        this._positionWeights = _getPositionWeights(map, this._positionToIdx);
 
         const { movementDuration } = Config.getEnvironmentConfig();
 
@@ -147,7 +147,7 @@ export class BeliefSet {
         }
 
         const visibleParcels = parcels.filter((p) =>
-            this.map.isReachable(currentPosition, p.position),
+            this.map.isReachable(this._position, p.position),
         );
 
         const newFreeParcels: ParcelID[] = [];
@@ -263,8 +263,10 @@ export class BeliefSet {
      */
     public getOccupiedPositions(include_teammates = true, include_myself = false): Position[] {
         const positions = [];
-        for (const [pos] of this._positionToAgent.entries()) {
+
+        for (const [pos, id] of this._positionToAgent.entries()) {
             positions.push(pos);
+            // console.log(`Agent ${id} at position ${pos}`);
         }
 
         if (include_teammates) {
@@ -352,7 +354,7 @@ export class BeliefSet {
                 return false;
             }
 
-            return this.map.isReachable(currentPosition, a.position);
+            return this.map.isReachable(this._position, a.position);
         });
 
         const visibleOccupiedPositions = new HashMap<Position, AgentID>();
@@ -367,10 +369,8 @@ export class BeliefSet {
                 const newAgentID = visibleOccupiedPositions.get(position)!;
                 this._positionToAgent.set(position, newAgentID);
                 this._agentToPosition.set(newAgentID, [position, now]);
-
                 continue;
             }
-
             const distance = currentPosition.manhattanDistance(position);
             if (distance <= agentRadius) {
                 // The viewer can see the position and it is not occupied by an agent
@@ -388,6 +388,16 @@ export class BeliefSet {
                 this._positionToAgent.delete(position);
                 this._agentToPosition.delete(oldAgentID);
                 changed = true;
+            } else if (
+                distance > agentRadius &&
+                !this._hasProbablyMoved(oldAgentID, lastSeen, now)
+            ) {
+                // The agent just moved to a position that the viewer cannot see so we need to remove the
+                // agent from the previous position
+                this._positionToAgent.delete(position);
+                this._agentToPosition.delete(oldAgentID);
+            } else {
+                throw new Error("This should never happen.");
             }
         }
 
@@ -421,6 +431,10 @@ export class BeliefSet {
             }
         }
 
+        // console.log("Occupied positions:");
+        // this._positionToAgent.forEach((id, pos) => {
+        //     console.log(`Agent ${id} at position ${pos}`);
+        // });
         if (changed) {
             this._broker.emit("occupied-positions-change");
         }
@@ -913,13 +927,13 @@ export class BeliefSet {
 // Helper functions
 // ---------------------------------------------------------------------------
 
-function _getPositionWeights(tiles: Tile[], positionToIdx: HashMap<Position, number>): number[] {
-    const weights = new Array(tiles.length).fill(0);
+function _getPositionWeights(map: GridMap, positionToIdx: HashMap<Position, number>): number[] {
+    const weights = new Array(map.tiles.length).fill(0);
 
     const { parcelRadius } = Config.getEnvironmentConfig();
     const { gaussianStd } = Config.getPlayerConfig();
 
-    for (const tile of tiles) {
+    for (const tile of map.tiles) {
         if (!tile.spawn) {
             continue;
         }
@@ -932,6 +946,10 @@ function _getPositionWeights(tiles: Tile[], positionToIdx: HashMap<Position, num
                 }
 
                 const pos = new Position(tile.position.row + i, tile.position.column + j);
+                if (!map.isReachable(tile.position, pos)) {
+                    continue;
+                }
+
                 const idx = positionToIdx.get(pos);
                 if (idx === undefined) {
                     continue;
