@@ -32,6 +32,7 @@ interface AgentInfo {
     id: AgentID;
     random: boolean;
     firstSeen: Instant;
+    firstScore: number;
 }
 
 export class BeliefSet {
@@ -418,7 +419,7 @@ export class BeliefSet {
                 const avgScore =
                     ((visitedTiles / avgParcelsDistance) * parcelRewardMean) / numSmartAgents;
 
-                info.random = avgScore > agent.score;
+                info.random = avgScore > agent.score - info.firstScore;
             } else {
                 // We did not know about the agent, so we add it to the set of agents.
                 // For now, we assume that the agent is not random.
@@ -426,6 +427,7 @@ export class BeliefSet {
                     id: agent.id,
                     random: false,
                     firstSeen: now,
+                    firstScore: agent.score,
                 };
                 this._agents.set(agent.id, info);
             }
