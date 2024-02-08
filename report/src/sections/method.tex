@@ -28,6 +28,7 @@ The pseudo-code of Algorithm~\ref{alg:agent} provides an high-level overview of 
 
 Before delving into the details of the implementation, some clarifications need to be made. While for the sake of simplicity we have presented the agent conrol loop as a sequential process, in practice most of the operations are performed concurrently. Indeed, this is a paramount requirement in a highly dynamic environment such as the one of the Deliveroo game, where changings in the environment can happen even while the agent is reasoning, planning and acting. Thus, all perceptions, communications and updates are performed asynchronously and in an event-driven fashion such that updates to the belief base and the desires are performed as soon as new information is available.
 
+
 \subsection{Team Communication}
 
 As stated in the introduction, not all agents in the environment are adversarial. In fact, agents may form teams and cooperate with each other to better achieve their goals. To allow the formation of teams and the exchange of information among the agents (necessary for an effective and productive cooperation), a communication protocol has been implemented.
@@ -43,6 +44,7 @@ The exhange of information regards three main aspects: the observations of the e
 The observations of the environment are the main source of information for the agents to update their belief bases (see Section~\ref{sec:belief-base} for more details). Each time an agent receives a new observation of the environment, it relays the observation to the other agents in the team. By doing so, the belief bases of the agents in the same team are kept in sync and their knowledge of the environment is both more accurate and more complete. One could argue that it would be better to only relay updates to the belief base, rather than each observation (which are much more frequent). However, we noticed that this leads to a higher risk of inconsistencies since temporary inaccuracies in the belief base of one agent will be propagated to all the other agents in the team.
 
 As for the observations, each time an agent updates its desires, it relays the new desires to the other agents in the team. In this way, the agents in the team can coordinate their actions and not interfere with each other (e.g. by not picking up the same parcels) to better achieve their goals. Finally, each time the position of an agent changes, it relays its new position to the other agents in the team.
+
 
 \subsection{Belief base}
 \label{sec:belief-base}
@@ -66,16 +68,25 @@ Each time the agent receives a new observation, it updates the set of adversaria
 To assess whether an agent is randomly moving, a simple heuristic has been defined. If from the first time the agent was observed to the last time the agent was observed its observed score is below a certain threshold, the agent is considered a random agent. The threshold is defined as the expected reward a greedy agent would have obtained in the same time span. This is computed in the following way:
 
 \begin{equation*}
-    \mathbb{E}_{\text{greedy}} = \frac{\mathbb{E}_{\texttt{distance}}}{\mu_{\texttt{distance}}} \cdot \frac{\mu_{\texttt{reward}}}{\texttt{numSmartAgents}}
+    \mathbb{E}_{\text{greedy}}[r] = \frac{\mathbb{E}[dist]}{\mu_{\texttt{dist}}} \cdot \frac{\mu_{\texttt{reward}}}{n_{\texttt{smart}}}
 \end{equation*}
 
-where $\mathbb{E}_{\texttt{distance}}$ is the expected distance covered by the agent in the time span, $\mu_{\texttt{distance}}$ is the average distance between parcels in the map, $\mu_{\texttt{reward}}$ is the average reward of the parcels, and \texttt{numSmartAgents} is the number of agents in the environment that are not random agents.
+where $\mathbb{E}[dist]$ is the expected distance covered by the agent in the time span, $\mu_{\texttt{dist}}$ is the average distance between parcels in the map, $\mu_{\texttt{reward}}$ is the average reward of the parcels, and $n_{\texttt{smart}}$ is the number of agents in the environment that are not random agents.
 
 Finally, note that here we do not make any assumption about the possible intentions of other agents. Indeed, modelling the behaviour of other agents is a complex and challenging task that may require learning-based approaches. Therefore, we preferred not to implement any partial model of the other agents' intentions, given that wrong assumptions about the actions of the other agents can lead to suboptimal decisions.
 
-\subsection{Search}
 
-This section describes the search algorithm used to update the set of desires of the agent and to select the intention to pursue.
+\subsection{Desires}
+
+In the BDI model, the desires represent the goals that the agent wants to achieve. In the context of the Deliveroo game, at each time instant the goals of the agent are to move to a location where there are parcels or to deliver the currently held parcels (if any). Therefore, each time there is a change in the set of available parcels, the agent needs to update its desires accordingly.
+
+Since the long-term objective of the agent is to maximize its reward, not all desires are equally important and worth pursuing. Therefore, it is necessary to assign them a score that should reflect their goodness for the agent's long-term goal. Hence, we deemed not sufficient to assign them a score based on their immediate reward, as this would lead the agent to be short-sighted and not to take into account the future consequences of its actions. To avoid this, we decided to implement a forward-looking scoring function based on Monte Carlo Tree Search. By using the MCTS algorithm, the score of each desire depends not only on the immediate reward, but also on the expected future reward that the agent can obtain after pursuing the desire.
+
+\subsection{Selection}
+\label{sec:selection}
+
+The selection phase is the process by which the agent selects the desire to pursue
+
 
 \subsection{Planning}
 
@@ -89,7 +100,7 @@ To further speed up the planning phase, we also implemented a  solution based on
 
 \begin{figure}
     \centering
-    \includegraphics[width=0.49\textwidth]{sections/figures/path-bottleneck.png}
+    \includegraphics[width=0.49\textwidth]{figures/path-bottleneck.png}
     \caption{An example of path bottleneck. The tiles in yellow belong to the path bottleneck from the start position to the end tile.}
     \label{fig:path-bottleneck}
 \end{figure}
