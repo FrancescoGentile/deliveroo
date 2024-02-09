@@ -25,18 +25,20 @@ function getConfig(): [PlayerConfig, string, string] {
         { name: "num-promising-positions", type: Number },
         { name: "gaussian-std", type: Number },
         { name: "discount-factor", type: Number },
+        { name: "use-pddl", type: Boolean },
     ];
 
-    const defaultValues = new Map<string, number>();
+    const defaultValues = new Map<string, number | boolean>();
     defaultValues.set("hello-interval", 2000);
     defaultValues.set("max-last-heard", 6000);
     defaultValues.set("start-iterations", 10);
     defaultValues.set("num-promising-positions", 5);
     defaultValues.set("gaussian-std", 1.0);
     defaultValues.set("discount-factor", 0.0);
+    defaultValues.set("use-pddl", false);
 
     // first check if the corresponding environment variables are set
-    const config = new Map<string, string | number>();
+    const config = new Map<string, string | number | boolean>();
     for (const option of options) {
         const varName = option.name.toUpperCase().replace(/-/g, "_");
         if (process.env[varName]) {
@@ -70,6 +72,7 @@ function getConfig(): [PlayerConfig, string, string] {
         numPromisingPositions: config.get("num-promising-positions") as number,
         gaussianStd: config.get("gaussian-std") as number,
         discountFactor: config.get("discount-factor") as number,
+        usePDDL: config.get("use-pddl") as boolean,
     };
 
     return [playerConfig, config.get("host") as string, config.get("token") as string];

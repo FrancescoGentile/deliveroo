@@ -27,6 +27,7 @@ export interface PlayerConfig {
     readonly numPromisingPositions: number;
     readonly gaussianStd: number;
     readonly discountFactor: number;
+    readonly usePDDL: boolean;
 }
 
 export class Config {

@@ -397,6 +397,7 @@ export class BeliefSet {
                 // agent from the previous position
                 this._positionToAgent.delete(position);
                 this._agentToPosition.delete(oldAgentID);
+                changed = true;
             } else {
                 throw new Error("This should never happen.");
             }
@@ -630,7 +631,7 @@ export class BeliefSet {
             if (this.map.isReachable(currentPosition, tile.position)) {
                 return w;
             }
-            return 0;
+            return Number.NEGATIVE_INFINITY;
         });
         const [values, indexes] = kmax(reachableWeights, k);
         return values

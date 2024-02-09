@@ -114,3 +114,11 @@ tmp_dist/
 
 # latex
 report/build/
+report/src/build/
+
+
+# pddl
+*.pddl
+*.plan
+*:pddl.plan
+!domain.pddl

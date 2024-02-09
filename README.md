@@ -6,7 +6,6 @@
 
 </div>
 
-
 ## How to run the project
 
 To install the project, first clone the repository and then run the following commands:
@@ -62,5 +61,20 @@ The list of the parameters that you can set is the following (the environment va
 - `num-promising-positions` (`NUM_PROMISING_POSITIONS`): the number of promising positions to consider when choosing the next move intention (default: 5)
 - `gaussian-std` (`GAUSSIAN_STD`): the standard deviation of the Gaussian distribution used to generate the expected value of a tile (default: 1.0)
 - `discount-factor` (`DISCOUNT_FACTOR`): the discount factor used to discount the values of the parcels picked by other team mates (default: 0.1)
+- `use-pddl` (`USE_PDDL`): whether or not to use PDDL to recompute failed paths (default: False)
 
 Parameters `host`, `token`, `secret-key`, and `secret-seed` are mandatory. The other parameters will be set to the default values if not provided.
+
+## Running the PDDL planner
+
+In order to run the PDDL planner you need to have the `planutils` package installed. You can install it by running the following command:
+
+```bash
+pip install planutils
+```
+
+Then, before running the project the planutils environment need to be activated by running the following command:
+
+```bash
+planutils_activate
+```

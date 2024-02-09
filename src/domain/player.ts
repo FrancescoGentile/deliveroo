@@ -25,6 +25,7 @@ import {
     Parcel,
     ParcelID,
     ParcelSensingMessage,
+    PddlPlanner,
     Position,
     PositionUpdateMessage,
     VisibleAgent,
@@ -36,6 +37,8 @@ export class Player {
     private readonly _beliefs: BeliefSet;
 
     private readonly _planner: MonteCarloTreeSearch;
+
+    private readonly _pddlPlanner: PddlPlanner;
 
     private readonly _sensors: Sensors;
 
@@ -83,6 +86,7 @@ export class Player {
         }, config.helloInterval.milliseconds);
 
         this._planner = new MonteCarloTreeSearch(this._beliefs);
+        this._pddlPlanner = new PddlPlanner(this._beliefs);
 
         // Add event listeners.
         this._sensors.onPositionUpdate(this._onLocalPositionUpdate.bind(this));
@@ -236,9 +240,23 @@ export class Player {
                 break;
             }
         }
-
+        let path: Direction[] | null = null;
         if (!hasMoved) {
-            const path = this._beliefs.recomputePath(this._beliefs.myPosition, intention.position);
+            if (Config.getPlayerConfig().usePDDL) {
+                setTimeout(() => {
+                    this._pddlPlanner
+                        .getPlan(this._beliefs.myPosition, intention.position)
+                        .then((p) => {
+                            path = p;
+                        })
+                        .catch((e) => {
+                            console.error("Error in PDDL planner: ", e);
+                            path = null;
+                        });
+                }, 1000);
+            } else {
+                path = this._beliefs.recomputePath(this._beliefs.myPosition, intention.position);
+            }
             this._actualPaths.set(intention, [this._beliefs.myPosition, path]);
 
             const bottleneck = this._beliefs.computeBottleneck(
@@ -505,15 +523,15 @@ export class Player {
             }
         }
 
-        console.log("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
-        for (const [intention, idx] of intentionToIdx.entries()) {
-            console.log(`${idx}: ${intention}`);
-        }
-        console.log("Cost matrix:");
-        for (const row of matrix) {
-            console.log(row);
-        }
-        console.log("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
+        // console.log("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
+        // for (const [intention, idx] of intentionToIdx.entries()) {
+        //     console.log(`${idx}: ${intention}`);
+        // }
+        // console.log("Cost matrix:");
+        // for (const row of matrix) {
+        //     console.log(row);
+        // }
+        // console.log("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO");
 
         return matrix;
     }
