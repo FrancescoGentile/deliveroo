@@ -76,8 +76,8 @@ where $\mathbb{E}[dist]$ is the expected distance covered by the agent in the ti
 Finally, note that here we do not make any assumption about the possible intentions of other agents. Indeed, modelling the behaviour of other agents is a complex and challenging task that may require learning-based approaches. Therefore, we preferred not to implement any partial model of the other agents' intentions, given that wrong assumptions about the actions of the other agents can lead to suboptimal decisions.
 
 
-\subsection{Desires}
-\label{sec:desires}
+\subsection{Search Tree}
+\label{sec:search}
 
 In the BDI model, the desires represent the goals that the agent wants to achieve. In the context of the Deliveroo game, at each time instant the goals of the agent are to move to a location where there are parcels or to deliver the currently held parcels (if any). Therefore, each time there is a change in the set of available parcels, the agent needs to update its desires accordingly.
 
