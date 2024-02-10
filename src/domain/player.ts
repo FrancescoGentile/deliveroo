@@ -6,14 +6,13 @@ import { HashMap, HashSet, Instant, getRandomInt, shuffle_in_place } from "src/u
 import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
 import { GridMap } from "./map";
+import { PddlPlanner } from "./pddl";
 import { MonteCarloTreeSearch } from "./planner";
 import { Actuators, Messenger, Sensors } from "./ports";
 import {
-    Agent,
     AgentID,
     AgentSensingMessage,
     Config,
-    DecayingValue,
     Direction,
     HelloMessage,
     IgnoreMeMessage,
@@ -25,7 +24,6 @@ import {
     Parcel,
     ParcelID,
     ParcelSensingMessage,
-    PddlPlanner,
     Position,
     PositionUpdateMessage,
     VisibleAgent,
