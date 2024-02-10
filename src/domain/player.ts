@@ -7,8 +7,8 @@ import { Cryptographer } from "src/utils/crypto";
 import { BeliefSet } from "./beliefs";
 import { GridMap } from "./map";
 import { PddlPlanner } from "./pddl";
-import { MonteCarloTreeSearch } from "./planner";
 import { Actuators, Messenger, Sensors } from "./ports";
+import { MonteCarloTreeSearch } from "./search";
 import {
     AgentID,
     AgentSensingMessage,
