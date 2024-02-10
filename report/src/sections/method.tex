@@ -77,15 +77,49 @@ Finally, note that here we do not make any assumption about the possible intenti
 
 
 \subsection{Desires}
+\label{sec:desires}
 
 In the BDI model, the desires represent the goals that the agent wants to achieve. In the context of the Deliveroo game, at each time instant the goals of the agent are to move to a location where there are parcels or to deliver the currently held parcels (if any). Therefore, each time there is a change in the set of available parcels, the agent needs to update its desires accordingly.
 
 Since the long-term objective of the agent is to maximize its reward, not all desires are equally important and worth pursuing. Therefore, it is necessary to assign them a score that should reflect their goodness for the agent's long-term goal. Hence, we deemed not sufficient to assign them a score based on their immediate reward, as this would lead the agent to be short-sighted and not to take into account the future consequences of its actions. To avoid this, we decided to implement a forward-looking scoring function based on Monte Carlo Tree Search. By using the MCTS algorithm, the score of each desire depends not only on the immediate reward, but also on the expected future reward that the agent can obtain after pursuing the desire.
 
+Hereby we describe the main design choices and modifications made to the MCTS algorithm to make it more suitable for a highly dynamic and real-time environment such as the Deliveroo game.
+
+Instead of searching over all possible move actions (up, down, left, right) that the agent can perform, to reduce the search space and to make the search more efficient, we decided to search over the possible desires that the agent can pursue at a given time instant. Thus, moving from one node of the search tree to another corresponds to pursuing a desire and each node corresponds to the state of the game if the agent were to execute all the desires along the path from the root node to the current node. Thus, we have that the root node corresponds to the current state of the game, its children correspond to the possible desires that the agent can pursue at the current time instant (among which the agent will choose the best one to pursue), the children of each child correspond to the remaining possible desires that the agent can pursue after pursuing the desire corresponding to the parent node, and so on.
+
+With respect to standard applications of MCTS, we decided not to model the state of the game that is not under our control, except for the decaying of the parcels. In fact, while MCTS is often used to model processes where the only uncertainity is given by the opponent's actions, in the Deliveroo game the uncertainity is much higher and computing the full state would require modelling the behaviour of other agents and the dynamics of the environment.
+
+Since we no longer model the randomness of the environment, the utility is no longer an expectaction over the possible outcomes of the game, computed as the average of the rewards obtained by simulating the game from the node state. Instead, the utility of a node is the exact reward that the agent can obtain from the given state of the game. Since we are interested in the best desire to perform, the utility of a node is equal to the maximum utility of its children plus the immediate reward the agent can obtain by pursuing the desire corresponding to the node. In particular, if the desire is a pick-up then its immediate reward is 0 (since the agent does not obtain any reward by picking up a parcel), while if the desire is a delivery then its immediate reward is the value of the delivered parcels (at the time of the delivery).
+
+Since the search must satisfy real-time constraints, some optimizations have been made to make it more efficient. First of all, in the play-out phase (i.e. the phase in which the game is simulated from the current state to the end), instead of throwing away the simulated subtree at the end of the play-out, we decided to keep it. While this increases the memory usage, it allows the agent to reuse the subtree in the next iterations of the search without having to recompute it from scratch. Furthermore, since before selecting the best desire to pursue the number of played iterations may be limited, we decided to expand the children of a node based on their greedy score (i.e. the reward obtained by pursuing that desire followed by a putdown) as to focus the first iterations of the search on the most promising desires.
+
+Finally, in traditional applications of MCTS, the search is restarted from scratch after each move. Doing the same in our case would be too inefficient and would not allow the agent to reuse the information gathered in the previous iterations of the search. Therefore, we decided to adopt a dynamic search strategy, in which the tree is modified in place as the game progresses. In particular, each time the agent moves the state of the root node is updated with the new position, while, when the agent completes a desire, its corresponding child is promoted to the root node and the other children are discarded. Furthermore, as new parcels appear or disappear, the nodes corresponding to the pick-up desires are added or removed from the tree.
+
 \subsection{Selection}
 \label{sec:selection}
 
-The selection phase is the process by which the agent selects the desire to pursue
+The selection phase is the process of choosing which desire to pursue next. As stated above, the possible desires that the agent can pursue at the current time instant correspond to the children of the root node of search tree. Thus, the most intuitive way to select the desire to pursue would be to choose the desire with the highest score. However, given the presence of other agents in the environment, the choice of the next intention must necessarily take into account the state of the other agents and the desires of the other team mates.
+
+To take into account the state of the non-cooperating agents, the score of each desire is adjusted based on how likely the agent can achieve it without being interfered by the other agents. To this end, the score of each pick-up desire is decreased if there are other agents in the vicinity that are more likely to pick up the same parcels first. This is done by decreasing the score of the desire by a factor inversely proportional to the distance of the closent adversarial agent to the pick-up location. More formally, the score of each desire is adjusted as follows:
+
+\begin{align*}
+    \texttt{factor} & = 1 - \frac{1}{1 + \min_{a \in A} \texttt{dist}(a, l)} \\
+    \texttt{score}  & = \texttt{score} \cdot \texttt{factor}^2
+\end{align*}
+
+where $A$ is the set of non-random adversarial agents, $l$ is the location of the parcel, and $\texttt{dist}(a, l)$ is the distance between the agent $a$ and the location $l$.
+
+To make the cooperation among the team members more effective, we need to ensure that no team members are pursuing the same desire at the same time. Even better, we should try to distribute the work among them such as to maximize the overall reward. To find the best one-to-one assignment of the desires to each team member Hungarian Matching \parencite{hungarian} has been used. Since the intention to pursue is recomputed after each action, to avoid a frequent reassignment of desires among team members, the score of a desire (for the next time instant) is adjusted based on the current assignment of desires to the team members. In particular, the score of each desire is decreased if it has been previously assigned to another team member, while it is increased if it has been previously assigned to the agent itself.
+
+A particular case that needs to be handled is when the agent is carrying some parcels but it cannot reach any delivery location. In such case, the agent sends a \texttt{ignore-me} message to the other agents in the team to inform them that it should not be taken into account when assigning the desires to the team members. Meanwhile, the agent will start moving towards its nearest team mate to deliver the parcels to them. As soon as the agent delivers the parcels, it sends a \texttt{resume-me} message to the other agents in the team to inform them that it should be taken into account again when assigning the desires to the team members.
+
+Finally, it may happen that the reward the agent can obtain by pursuing the chosen intention is not worth the effort. In such cases, it would be better to move to another location of the map hoping to find better opportunities. To this end, when the score of the chosen intention is equal to 0, the agent starts moving to the most promising position of the map. To find the most promising position a simple heuristic has been defined. Intuitively, a position on the map is more promising if it is close to a spawning point but far from other agents. More formally, the score of each position is computed as follows:
+
+\begin{equation*}
+    \texttt{score} = (\sum \limits_{p \in P} e^{-\frac{1}{2}(\frac{\texttt{dist}(p, l)}{\sigma})^2}) \cdot \prod \limits_{a \in A} (1 - e^{-\frac{1}{2}(\frac{\texttt{dist}(a, l)}{\sigma})^2})
+\end{equation*}
+
+where $P$ is the set of spawning points, $A$ is the set of all agents, $l$ is the location of the position, $\texttt{dist}(p, l)$ is the Manhattan distance between the spawning point $p$ and the location $l$, and $\sigma$ is a scaling factor that determines the radius of the influence. As can be seen, the score of each position is the product of two terms. The first term is the sum of the positive Gaussian functions centered at the spawning points, while the second term is the product of the negative Gaussian functions centered at the other agents.
 
 
 \subsection{Planning}

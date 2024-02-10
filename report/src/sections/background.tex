@@ -8,9 +8,9 @@ Monte Carlo Tree Search \parencite{mcts} is a heuristic search algorithm applied
 
 \begin{enumerate}
     \item \textbf{Selection}: starting from the root $R$, which represent the current game state, traverse the tree until a leaf $L$ is reached. A key aspect for the proper functioning of the algorithm is being able to balance the \textit{exploitation} of already promising paths and the \textit{exploration} of children with fewer simulations. The most used formula to compute such trade-off is the UCT (Upper Confidence Bound 1 applied to Trees)
-          \begin{align*}
-              UCT & = \underbrace{\frac {w_{i}}{n_{i}}}_{\text{exploitation term}}+c\underbrace{{\sqrt {\frac {\ln N_{i}}{n_{i}}}}}_{\text{exploration term}}
-          \end{align*}
+          \begin{equation}
+              \texttt{UCT} = \underbrace{\frac {w_{i}}{n_{i}}}_{\text{exploitation term}}+\;\; c \cdot \underbrace{{\sqrt {\frac {\ln N_{i}}{n_{i}}}}}_{\text{exploration term}}
+          \end{equation}
           where
           \begin{itemize}
               \item $w_i$ is the number of wins obtained in the subtree of $i$
