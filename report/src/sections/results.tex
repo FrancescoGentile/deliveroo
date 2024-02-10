@@ -1,4 +1,6 @@
 \section{Results}
+\label{sec:results}
+
 To evaluate the performances of our implementation, six different maps were used and each of them focuses on a different facet of the problem (e.g. map structure, parcel rewards, etc.). The tests were conducted by running our agent on each map for five minutes and reporting the final score. It is important to note that this score is only an estimate as both the condition of the map and the behaviour of the agent have a stochastic component to them and thus are not perfectly reproducible.
 
 \subsection{Single Agent}
@@ -11,13 +13,13 @@ Due to the number of available tiles, the initial precomputation of the distance
 Sometimes it may also happen that the agent performs sub-optimal actions such as ignoring parcels even if they are very close to the path it is already taking. This stems from the fact that the parcels' scores don't decay and thus the agent has no incentive to change the intention it has previously computed to include a new parcel when it can simply collect it later and incur in the same reward.
 \paragraph{Challenge\_22} Challenge characterized by a large number of parcels with a small average reward and a fast moving agent.
 
-This map is quite challenging as the rate at which parcels spawn and then die is very high. Moreover the agent is able to see up to a large distance and move fairly fast. This leads to having a lot of parcels that have to be taken into account at every point of the game and the mcts planner is not always able to keep up with the frequent changes and come up with the best plan that considers all parcels. In order to at least partially mitigated this problem, each time a parcel expires or is picked up by another agent, the mcts tree is pruned and that parcel removed from all paths where it was previously considered to reduce the size of the tree.
+This map is quite challenging as the rate at which parcels spawn and then die is very high. Moreover the agent is able to see up to a large distance and move fairly fast. This leads to having a lot of parcels that have to be taken into account at every point of the game and the MCTS is not always able to keep up with the frequent changes and come up with the best plan that considers all parcels. In order to at least partially mitigated this problem, each time a parcel expires or is picked up by another agent, the search tree is pruned and that parcel removed from all paths where it was previously considered to reduce the size of the tree.
 
 % By examining the agent behaviour when it is running it is easy to see that the behaviour of the agent is much more sensible in areas with few parcels than other, more dense, areas
 
-\paragraph{Challenge\_23} The map is characterized by narrow paths with many other agents moving in them, a limited number of available parcels at any time but with high rewards and an high parcel observation distance. 
+\paragraph{Challenge\_23} The map is characterized by narrow paths with many other agents moving in them, a limited number of available parcels at any time but with high rewards and an high parcel observation distance.
 
-This tests how well an agent is able to navigate its surrounding environment and either modify its path to take into account the obstacles that are other agents or drop an intention all together to pursue a more promising one.  
+This tests how well an agent is able to navigate its surrounding environment and either modify its path to take into account the obstacles that are other agents or drop an intention all together to pursue a more promising one.
 
 
 \paragraph{Challenge\_24} This map differs from the other previous challenges because parcels are able to spawn only on some of the tiles and can be delivered in a single far away position.
@@ -30,11 +32,11 @@ Due to the nature of our implementation, the main drawback is that once a parcel
 \begin{table}
     \centering
     \begin{tabular}{c || c c} \hline
-                    & Benchmark  & Our Solution   \\ \hline
-    Challenge 21    &  90       &  350          \\
-    Challenge 22    &  6        &  613          \\
-    Challenge 23    &  698      &  3219         \\
-    Challenge 24    &  637      &  1470         \\  \hline 
+                     & Benchmark & Our Solution \\ \hline
+        Challenge 21 & 90        & 350          \\
+        Challenge 22 & 6         & 613          \\
+        Challenge 23 & 698       & 3219         \\
+        Challenge 24 & 637       & 1470         \\  \hline
     \end{tabular}
     \caption{Scores for the single agent maps}
     \label{tab:single_agent}
@@ -47,9 +49,9 @@ The evaluation for the multi-agent implementation was carried out on the followi
 
 \paragraph{Challenge\_31} The map is designed with vertical lines connected by an horizontal corridor. Both delivery and spawning tiles can be found at the ends of the vertical lines.
 
-This challenge is complex due to the high number of parcels seen at any time, similarly to challenge\_22, but with the added difficulty that the parcels are viewed by two different agents and therefore the information about them is shared asynchronously. 
+This challenge is complex due to the high number of parcels seen at any time, similarly to challenge\_22, but with the added difficulty that the parcels are viewed by two different agents and therefore the information about them is shared asynchronously.
 
-Because of the dynamic nature of the environment, the agents often change their intentions and the parcels they are going to pick up. This sometimes leads to agents starting to move towards their intention only to then receive a message from another teammate stating that it has a better score for that same intention forcing the agent to drop its intention. This may result in the agents moving back and forth constantly switching their intention while not being able to make any progress. 
+Because of the dynamic nature of the environment, the agents often change their intentions and the parcels they are going to pick up. This sometimes leads to agents starting to move towards their intention only to then receive a message from another teammate stating that it has a better score for that same intention forcing the agent to drop its intention. This may result in the agents moving back and forth constantly switching their intention while not being able to make any progress.
 
 \paragraph{Challenge\_32}  This challenge has a unique configuration with vertical, separate lines with a spawning tile on one end and a delivery tile on the other and it tests the ability of the agents to effectively coordinate and collaborate to exchange parcels.
 
@@ -63,10 +65,10 @@ While no direct mechanism to prevent the agents to block each other when moving 
 \begin{table}
     \centering
     \begin{tabular}{c || c} \hline
-                    &  Our Solution \\ \hline
-    Challenge 31    &  1352         \\
-    Challenge 32    &  5473         \\  
-    Challenge 33    &  1938         \\  \hline 
+                     & Our Solution \\ \hline
+        Challenge 31 & 1352         \\
+        Challenge 32 & 5473         \\
+        Challenge 33 & 1938         \\  \hline
     \end{tabular}
     \caption{Scores for the multi-agent maps}
     \label{tab:multi_agent}

@@ -1,0 +1,12 @@
+\section{Conclusions}
+
+We have presented a multi-agent system that uses Monte Carlo Tree Search to solve the problem of collecting and delivering parcels in a dynamic environment.
+As can be seen from the results reported (see Section~\ref{sec:results}), our solution provides satisfactory results on all the maps we have tested it on. Still, there are some limitations that should be addressed in future work.
+
+First of all, the current implementation of MCTS cannot keep up in case of many and frequent changes in the environment. This is due to the fact that the tree must be constantly modified and pruned and too few iterations are performed to come up with a good plan. Thus, future focus should be on improving the efficiency of the MCTS algorithm, for example by parallelizing the search.
+
+Another issue regards the coordination between agents. In the current implementation, the search tree is built independently by each agent limiting the coordination to the exchange of messages and for the intention selection. This means that the search does not take into account possible interference between the agents at a depth greater than one (that is, after the immediate next move).
+
+A possible solution to this problem could be to move from a distributed to a centralized approach, where a leader is responsible for coordinating the agents and building a global search tree. Still such solution is not without its drawbacks. Other than being a single point of failure, a global search tree that take into consideration all possible combinations of actions for all agents would be too large to be practical. While there exists decoupled implementations for cooperative MCTS \parencite{asik2023decoupled}, such solutions do not allow to update the tree in real time but require to start from scratch every time the environment changes.
+
+Therefore, future work should focus on finding a better balance between the two approaches, possibly by keeping a local search tree for each agent with a modified version of the UCT algorithm that takes into account the future actions of the other agents. This would allow to keep the advantages of a distributed approach while still being able to coordinate the agents and take into account the interference between them.
