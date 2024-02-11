@@ -19,12 +19,13 @@ Monte Carlo Tree Search \parencite{mcts} is a heuristic search algorithm applied
               \item $c$ is the exploration parameter, usually equal to $\sqrt{2}$
           \end{itemize}
 
-    \item \textbf{Expansion}: if $L$ isn't a terminal node (i.e. there are valid moves that can be performed starting from the game state in $L$ ) pick a node $C$ among its children that haven't been yet expanded
+    \item \textbf{Expansion}: if $L$ isn't a terminal node (i.e. there are valid moves that can be performed starting from the game state in $L$ ), pick a node $C$ among its children that haven't been yet expanded
 
     \item \textbf{Simulation}: starting from $C$, randomly choose valid moves until a terminal state is reached and the game is decided (i.e. win/loss/draw)
 
     \item \textbf{Backpropagation}: the result of the simulation is used to update the statistics (number of wins and number of visits) for all nodes along the path from $C$ to $R$ that are then used to compute the UCTs for the following iterations
 \end{enumerate}
+
 
 \begin{figure}
     \centering

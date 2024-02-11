@@ -10,7 +10,8 @@ The evaluation for the single agent was carried out on the following four maps. 
 
 Due to the number of available tiles, the initial precomputation of the distances between any two tiles is quite noticeable and takes several seconds. Nevertheless, the speedup in the planning phase more than makes up for this initial time loss.
 
-Sometimes it may also happen that the agent performs sub-optimal actions such as ignoring parcels even if they are very close to the path it is already taking. This stems from the fact that the parcels' scores don't decay and thus the agent has no incentive to change the intention it has previously computed to include a new parcel when it can simply collect it later and incur in the same reward.
+Sometimes it may also happen that the agent performs sub-optimal actions such as ignoring parcels even if they are very close to the path it is already taking. This stems from the fact that the parcels' scores don't decay and thus the agent has no incentive to change the action it is currently performing to include a new parcel when it can simply collect it later and incur in the same reward.
+
 \paragraph{Challenge\_22} Challenge characterized by a large number of parcels with a small average reward and a fast moving agent.
 
 This map is quite challenging as the rate at which parcels spawn and then die is very high. Moreover the agent is able to see up to a large distance and move fairly fast. This leads to having a lot of parcels that have to be taken into account at every point of the game and the MCTS is not always able to keep up with the frequent changes and come up with the best plan that considers all parcels. In order to at least partially mitigated this problem, each time a parcel expires or is picked up by another agent, the search tree is pruned and that parcel removed from all paths where it was previously considered to reduce the size of the tree.
@@ -24,9 +25,9 @@ This tests how well an agent is able to navigate its surrounding environment and
 
 \paragraph{Challenge\_24} This map differs from the other previous challenges because parcels are able to spawn only on some of the tiles and can be delivered in a single far away position.
 
-Since the parcel observation distance is quite small, this challenge puts to the test the agent's ability to explore a map even when it isn't able to see any parcel. However, our solution exploits the spawning tiles to compute the promising positions to move towards which means that it performs well in this setting.
+Since the parcel observation distance is quite small, this challenge puts to the test the agent's ability to explore a map even when it isn't able to see any parcel. However, our solution exploits the spawning tiles to compute the promising positions to move towards as described in Section~\ref{sec:selection} which means that it performs well in this setting.
 
-Due to the nature of our implementation, the main drawback is that once a parcel has been collected the agent promptly takes the shortest path towards the delivery position and therefore isn't able to observe any other spawning tile until after the parcel has been delivered. This continuous back and forth between one of the spawning tile and the delivery position could lead to a smaller reward than taking a longer path to reach a parcel but with a chance of seeing some other spawning tiles and collecting more parcels in the meantime.
+Due to the nature of our implementation, the main drawback is that once a parcel has been collected the agent promptly takes the shortest path towards the delivery position and therefore isn't able to observe any other spawning tile until after the parcel has been delivered. This continuous back and forth between one of the spawning tile and the delivery position could lead to a smaller reward than taking a longer path to reach a parcel but with the chance of seeing some other spawning tiles and collecting more parcels in the meantime.
 
 
 \begin{table}
@@ -51,11 +52,11 @@ The evaluation for the multi-agent implementation was carried out on the followi
 
 This challenge is complex due to the high number of parcels seen at any time, similarly to challenge\_22, but with the added difficulty that the parcels are viewed by two different agents and therefore the information about them is shared asynchronously.
 
-Because of the dynamic nature of the environment, the agents often change their intentions and the parcels they are going to pick up. This sometimes leads to agents starting to move towards their intention only to then receive a message from another teammate stating that it has a better score for that same intention forcing the agent to drop its intention. This may result in the agents moving back and forth constantly switching their intention while not being able to make any progress.
+Because of the dynamic nature of the environment, the agents often change their intentions and the parcels they are going to pick up. This sometimes leads to agents starting to move towards their intention only to then receive a message from another teammate stating that it has a better score for that same intention forcing the agent to drop its intention. This may result in the agents moving back and forth, constantly switching their intention, while not being able to make any progress.
 
 \paragraph{Challenge\_32}  This challenge has a unique configuration with vertical, separate lines with a spawning tile on one end and a delivery tile on the other and it tests the ability of the agents to effectively coordinate and collaborate to exchange parcels.
 
-This map is where the ignore message described above is mainly used in order for the agent closer to the spawning tile to drop its parcels so that the agent closer to the delivery tile can successfully deliver them.
+This map is where the \texttt{ignore-me} message described above is mainly used in order for the agent closer to the spawning tile to drop its parcels so that the agent closer to the delivery tile can successfully deliver them.
 
 Another possible scenario is for the two agents to spawn in separate lines but this is less interesting because, while still sharing information about the position of parcels, there is no explicit need for coordination.
 \paragraph{Challenge\_33} The map's design is similar to that of challenge\_31 but this map is divided in two, non-communicating, halves and the horizontal corridor connecting them is tighter.
